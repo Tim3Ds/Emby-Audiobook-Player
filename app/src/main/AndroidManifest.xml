@@ -28,6 +28,7 @@
             android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media.session.MediaSessionService" />
+                <action android:name="android.media.session.MediaButtonReceiver" />
             </intent-filter>
         </service>
     </application>
