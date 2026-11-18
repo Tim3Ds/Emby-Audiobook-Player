@@ -20,6 +20,10 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Personal sideload builds (incl. CI artifacts) are signed with
+            // the debug key so the APK installs directly. Replace with a
+            // real keystore before any wider distribution.
+            signingConfig = signingConfigs.getByName("debug")
         }
     }
     compileOptions {
