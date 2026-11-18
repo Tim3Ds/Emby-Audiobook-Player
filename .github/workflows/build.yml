@@ -26,11 +26,13 @@ jobs:
           java-version: "17"
 
       - name: Install SDK packages
-        # ubuntu-24.04 runners ship the Android SDK with licenses
-        # pre-accepted; just add the platform/build-tools we need.
+        # ubuntu-24.04 runners ship the Android SDK (licenses
+        # pre-accepted) under $ANDROID_SDK_ROOT; sdkmanager is not on
+        # PATH, so call it by its full path.
         run: |
-          yes | sdkmanager --licenses > /dev/null
-          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          SDKMANAGER="$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null
+          "$SDKMANAGER" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Set up Gradle 8.7
         uses: gradle/actions/setup-gradle@v4
