@@ -1,6 +1,7 @@
 package net.kellydev.audiobooks.player
 
 import android.content.ComponentName
+import net.kellydev.audiobooks.CrashLog
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.exoplayer.ExoPlayer
@@ -22,16 +23,25 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val audioAttributes = AudioAttributes.Builder()
-            .setUsage(C.USAGE_MEDIA)
-            .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
-            .build()
-        val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
-            .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_NETWORK)
-            .build()
-        mediaSession = MediaSession.Builder(this, player).build()
+        CrashLog.install(this)
+        try {
+            val audioAttributes = AudioAttributes.Builder()
+                .setUsage(C.USAGE_MEDIA)
+                .setContentType(C.AUDIO_CONTENT_TYPE_SPEECH)
+                .build()
+            val player = ExoPlayer.Builder(this)
+                .setAudioAttributes(audioAttributes, /* handleAudioFocus = */ true)
+                .setHandleAudioBecomingNoisy(true)
+                .setWakeMode(C.WAKE_MODE_NETWORK)
+                .build()
+            mediaSession = MediaSession.Builder(this, player).build()
+        } catch (t: Throwable) {
+            // A failure building the player must not kill the whole app
+            // process — record it so the next launch shows the trace,
+            // and leave the session null (playback unavailable).
+            CrashLog.record(this, t)
+            mediaSession = null
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
