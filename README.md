@@ -4,6 +4,8 @@ A small, audiobook-only Android client for a self-hosted [Emby](https://emby.med
 
 Built because the Emby Android app stops/freezes playback whenever a notification arrives, and the third-party alternative's trial ran out. This app does one job: play your audiobooks, with the transport controls a book needs, and keep your place synced with the server.
 
+**Since v0.2.0 the app is built on Flutter** (Dart). The earlier native Kotlin/Compose version (v0.1.x) is preserved in this repo's git history.
+
 ## Scope
 
 Deliberately narrow — it shows only:
@@ -22,17 +24,16 @@ No music, no video, no library browsing beyond those two lists.
 - Next / previous track
 - Playback speed (0.75×–2.0×)
 - Position sync: progress is reported back to Emby as you listen, so every Emby client agrees on where you left off
-- Background playback with system media / lock-screen controls
-- Audio focus that *ducks* under notification sounds instead of freezing
+- Background playback with system media / lock-screen controls (audio_service + just_audio)
+- Audio focus that *ducks* under notification sounds instead of freezing (speech audio-session configuration)
+- On-device crash capture: if the app dies, the next launch shows the recorded error instead of failing silently
 
 ## Build
 
-- JDK 17, Android SDK 34, Gradle 8.7 (AGP 8.5.2, Kotlin 2.0)
-- `gradle :app:assembleDebug` → `app/build/outputs/apk/debug/app-debug.apk`
-- Sideload the APK onto your phone (minSdk 26).
-
-A Gradle wrapper will be added once the first build environment is settled.
+- Flutter 3.50 (Dart 3.14): `flutter pub get` then `flutter build apk --release`
+- Output: `build/app/outputs/flutter-apk/app-release.apk` (debug-key signed, sideloadable)
+- CI builds the same APK on every push to `main` and uploads it as a workflow artifact; pushing a `v*` tag additionally publishes a GitHub Release with the APK attached.
 
 ## Status
 
-v0.1.0 — first working slice. Not yet built/run against a live server; expect rough edges. Chapter buttons appear only when Emby has chapter data for the book.
+v0.2.0 — the Flutter base. Same features and behaviour as the native v0.1.x line; expect the usual first-run rough edges, and use the crash screen if anything dies.
