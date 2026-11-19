@@ -37,6 +37,35 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Add Maven Central fallback for plugin dependencies
+        # plugins.gradle.org intermittently 404s the Kotlin plugin
+        # artifacts for whole stretches (it burned every retry of the
+        # v0.3.0/v0.3.1 first runs). The same artifacts exist on Maven
+        # Central; this init script gives every Gradle build in the
+        # composite (including Flutter's own gradle project, whose
+        # buildscript classpath is what kept failing) Central and
+        # Google as additional plugin/dependency repositories.
+        run: |
+          mkdir -p ~/.gradle
+          cat > ~/.gradle/init.gradle.kts <<'EOF'
+          beforeSettings {
+              pluginManagement {
+                  repositories {
+                      mavenCentral()
+                      google()
+                  }
+              }
+          }
+          allprojects {
+              buildscript {
+                  repositories {
+                      mavenCentral()
+                      google()
+                  }
+              }
+          }
+          EOF
+
       - name: Restore signing key
         # The keystore and its password live in repo secrets (the repo
         # is public; the key must never be committed). Restoring the

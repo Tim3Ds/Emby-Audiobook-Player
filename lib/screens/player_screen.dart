@@ -60,8 +60,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _poll?.cancel();
-    // Leaving the player tells Emby the session ended at this position.
-    handler.reportStoppedNow();
+    // Deliberately NO stop report here: leaving the player screen is
+    // the normal flow while the book keeps playing in the background.
+    // Reporting Stopped here (the old behaviour) closed the Emby
+    // session AND cancelled the handler's progress timer, so the
+    // position never updated again for the rest of the book - the
+    // exact opposite of cross-device pickup. The handler owns all
+    // reporting; it stops only when playback truly stops.
     super.dispose();
   }
 

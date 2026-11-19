@@ -44,6 +44,16 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       if (tag is MediaItem) {
         mediaItem.add(tag);
       }
+      // A track boundary is a natural checkpoint: sync the position
+      // so another device can pick up here.
+      _reportProgress(isPaused: !player.playing);
+    });
+    player.processingStateStream.listen((state) {
+      if (state == ProcessingState.completed) {
+        // The book truly ended: final Stopped report at the end
+        // position (Emby marks it played) and the timer stops.
+        reportStoppedNow();
+      }
     });
   }
 
@@ -90,6 +100,9 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     PlaybackInfoResponse info, {
     required EmbyItem listItem,
   }) async {
+    // Switching books: close out the previous book's session at its
+    // current position first, so its place is saved too.
+    if (session != null) reportStoppedNow();
     _api = api;
     final s = BookSession(details, info.mediaSources, info.playSessionId);
     session = s;
@@ -195,6 +208,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     if (s.totalMs > 0 && clamped > s.totalMs) clamped = s.totalMs;
     final (idx, offset) = s.locate(clamped);
     await player.seek(Duration(milliseconds: offset), index: idx);
+    // Checkpoint seeks immediately, not at the next 10s tick.
+    _reportProgress(isPaused: !player.playing);
   }
 
   @override
@@ -204,6 +219,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final idx = player.currentIndex ?? 0;
     if (idx < s.sources.length - 1) {
       await player.seek(Duration.zero, index: idx + 1);
+      _reportProgress(isPaused: !player.playing);
     }
   }
 
@@ -215,6 +231,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     } else {
       await player.seek(Duration.zero, index: idx - 1);
     }
+    _reportProgress(isPaused: !player.playing);
   }
 
   void nextChapter() {
