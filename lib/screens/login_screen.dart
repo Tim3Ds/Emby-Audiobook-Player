@@ -30,6 +30,12 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signIn() async {
+    if (_server.text.trim().isEmpty) {
+      setState(() =>
+          _error = 'Enter your Emby server address first, e.g. '
+              'https://emby.example.com');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -72,7 +78,9 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _server,
                 decoration: const InputDecoration(
-                    labelText: 'Server', border: OutlineInputBorder()),
+                    labelText: 'Server',
+                    hintText: 'https://your-emby-server',
+                    border: OutlineInputBorder()),
                 keyboardType: TextInputType.url,
               ),
               const SizedBox(height: 12),

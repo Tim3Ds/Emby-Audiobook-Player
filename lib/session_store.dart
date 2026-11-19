@@ -11,7 +11,12 @@ class SessionStore {
   static Future<SessionStore> load() async =>
       SessionStore(await SharedPreferences.getInstance());
 
-  static const defaultServer = 'https://emby.kellydev.net';
+  // No baked-in server address: the user enters their own Emby
+  // server on the sign-in screen. (This used to default to the
+  // author's personal server; the repo is public, so it does not
+  // belong in the code.) A previously entered server is saved and
+  // still prefilled - only a fresh install starts blank.
+  static const defaultServer = '';
 
   String get server => _prefs.getString('server') ?? defaultServer;
   set server(String v) => _prefs.setString('server', v);
