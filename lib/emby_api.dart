@@ -203,7 +203,7 @@ class EmbyApi {
   /// Books with a saved position — the "currently playing" shelf.
   Future<List<EmbyItem>> resumeItems() async {
     final url = '$base/Users/$userId/Items/Resume?Limit=24&Recursive=true'
-        '&IncludeItemTypes=AudioBook,Audio&MediaTypes=Audio'
+        '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
         '&Fields=PrimaryImageAspectRatio&EnableImages=true';
     final text = await _execute(_request('GET', url));
     final j = jsonDecode(text) as Map<String, dynamic>;
@@ -217,7 +217,7 @@ class EmbyApi {
   /// Every audiobook the user has favorited on the server.
   Future<List<EmbyItem>> favoriteItems() async {
     final url = '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
-        '&IncludeItemTypes=AudioBook,Audio&MediaTypes=Audio'
+        '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
         '&Fields=PrimaryImageAspectRatio&EnableImages=true'
         '&SortBy=SortName&SortOrder=Ascending';
     final text = await _execute(_request('GET', url));
