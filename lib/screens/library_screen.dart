@@ -37,14 +37,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.api.resumeItems(),
-        widget.api.favoriteItems(),
-      ]);
+      // Scope both lists to the books library so music cannot leak in.
+      final bookLibs = await widget.api.bookLibraryIds();
+      var resume = await widget.api.resumeItems(parentIds: bookLibs);
+      var favorites = await widget.api.favoriteItems(parentIds: bookLibs);
+      if (bookLibs.isNotEmpty) {
+        // Safety net: if library scoping hid everything (the books
+        // living in a differently-typed library), fall back to the
+        // unscoped queries rather than showing empty shelves.
+        if (resume.isEmpty) {
+          final unscoped = await widget.api.resumeItems();
+          if (unscoped.isNotEmpty) resume = unscoped;
+        }
+        if (favorites.isEmpty) {
+          final unscoped = await widget.api.favoriteItems();
+          if (unscoped.isNotEmpty) favorites = unscoped;
+        }
+      }
       if (!mounted) return;
       setState(() {
-        _resume = results[0];
-        _favorites = results[1];
+        _resume = resume;
+        _favorites = favorites;
         _loading = false;
       });
     } catch (e) {

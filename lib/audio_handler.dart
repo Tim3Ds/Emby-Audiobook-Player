@@ -125,7 +125,10 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       initialIndex: trackIndex,
       initialPosition: Duration(milliseconds: offsetMs),
     );
-    await player.play();
+    // just_audio's play() future completes only when playback STOPS,
+    // so awaiting it would hang loadBook - and with it the app's move
+    // to the player screen - for the entire book. Fire it and move on.
+    unawaited(player.play().catchError((Object _) {}));
     api.reportPlaying(details.id, info.playSessionId, startTicks);
     _reportTimer?.cancel();
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) {

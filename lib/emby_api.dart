@@ -200,18 +200,61 @@ class EmbyApi {
     return result;
   }
 
-  /// Books with a saved position — the "currently playing" shelf.
-  Future<List<EmbyItem>> resumeItems() async {
-    final url = '$base/Users/$userId/Items/Resume?Limit=24&Recursive=true'
-        '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
-        '&Fields=PrimaryImageAspectRatio&EnableImages=true';
+  Future<List<EmbyItem>> _itemsFromUrl(String url) async {
     final text = await _execute(_request('GET', url));
     final j = jsonDecode(text) as Map<String, dynamic>;
-    final items = (j['Items'] as List?)
+    return (j['Items'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .map(EmbyItem.fromJson)
             .toList() ??
         const <EmbyItem>[];
+  }
+
+  /// Runs an items query once per parent library (or once unscoped
+  /// when [parentIds] is empty) and merges, de-duplicated by id.
+  Future<List<EmbyItem>> _scopedItems(
+    String Function(String? parentId) urlFor,
+    List<String> parentIds,
+  ) async {
+    if (parentIds.isEmpty) return _itemsFromUrl(urlFor(null));
+    final seen = <String>{};
+    final out = <EmbyItem>[];
+    for (final pid in parentIds) {
+      for (final item in await _itemsFromUrl(urlFor(pid))) {
+        if (seen.add(item.id)) out.add(item);
+      }
+    }
+    return out;
+  }
+
+  /// Ids of the user's libraries whose collection type is "books".
+  /// Scoping the book lists to these libraries keeps music out even
+  /// when the server types music items unexpectedly.
+  Future<List<String>> bookLibraryIds() async {
+    final text =
+        await _execute(_request('GET', '$base/Users/$userId/Views'));
+    final j = jsonDecode(text) as Map<String, dynamic>;
+    final items = (j['Items'] as List?) ?? const [];
+    return [
+      for (final v in items)
+        if (v is Map<String, dynamic> &&
+            v['CollectionType'] == 'books' &&
+            v['Id'] is String)
+          v['Id'] as String,
+    ];
+  }
+
+  /// Books with a saved position — the "currently playing" shelf.
+  Future<List<EmbyItem>> resumeItems({
+    List<String> parentIds = const [],
+  }) async {
+    final items = await _scopedItems(
+      (pid) => '$base/Users/$userId/Items/Resume?Limit=24&Recursive=true'
+          '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
+          '&Fields=PrimaryImageAspectRatio&EnableImages=true'
+          '${pid == null ? '' : '&ParentId=$pid'}',
+      parentIds,
+    );
     // Emby's Resume endpoint also returns books that merely have user
     // data on file (e.g. every later book in a series the user has
     // touched), which made Continue Listening list whole series runs.
@@ -224,18 +267,17 @@ class EmbyApi {
   }
 
   /// Every audiobook the user has favorited on the server.
-  Future<List<EmbyItem>> favoriteItems() async {
-    final url = '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
-        '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
-        '&Fields=PrimaryImageAspectRatio&EnableImages=true'
-        '&SortBy=SortName&SortOrder=Ascending';
-    final text = await _execute(_request('GET', url));
-    final j = jsonDecode(text) as Map<String, dynamic>;
-    return (j['Items'] as List?)
-            ?.whereType<Map<String, dynamic>>()
-            .map(EmbyItem.fromJson)
-            .toList() ??
-        const [];
+  Future<List<EmbyItem>> favoriteItems({
+    List<String> parentIds = const [],
+  }) async {
+    return _scopedItems(
+      (pid) => '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
+          '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
+          '&Fields=PrimaryImageAspectRatio&EnableImages=true'
+          '&SortBy=SortName&SortOrder=Ascending'
+          '${pid == null ? '' : '&ParentId=$pid'}',
+      parentIds,
+    );
   }
 
   /// Full item details, including the chapter list when the server has one.
