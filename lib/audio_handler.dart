@@ -129,6 +129,115 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final startTicks = listItem.userData?.playbackPositionTicks ??
         details.userData?.playbackPositionTicks ??
         0;
+    await _playSession(api, s, items, sources, startTicks);
+    return s;
+  }
+
+  /// Open a MusicAlbum as one book over its files. Chapters from
+  /// every file are merged onto the book timeline with their file
+  /// offsets; position reports go to the file currently playing,
+  /// because Emby keeps resume points per file.
+  Future<BookSession> loadAlbumBook(
+    EmbyApi api,
+    EmbyItem albumDetails,
+    List<({EmbyItem item, PlaybackInfoResponse info})> parts, {
+    required EmbyItem listItem,
+  }) async {
+    if (session != null) reportStoppedNow();
+    _api = api;
+
+    final sources = <MediaSourceDto>[];
+    final trackItemIds = <String>[];
+    final trackPlaySessionIds = <String>[];
+    final partStartTicks = <int>[];
+    final mergedChapters = <ChapterDto>[];
+    var accTicks = 0;
+    for (final part in parts) {
+      partStartTicks.add(accTicks);
+      for (final src in part.info.mediaSources) {
+        sources.add(src);
+        trackItemIds.add(part.item.id);
+        trackPlaySessionIds.add(part.info.playSessionId);
+      }
+      for (final ch in part.item.chapters) {
+        mergedChapters.add(ChapterDto(
+          startPositionTicks: ch.startPositionTicks + accTicks,
+          name: ch.name,
+        ));
+      }
+      accTicks += part.info.mediaSources
+          .fold<int>(0, (a, s) => a + (s.runTimeTicks ?? 0));
+    }
+    if (sources.isEmpty) {
+      throw Exception('None of this album\'s files could be played.');
+    }
+    mergedChapters
+        .sort((a, b) => a.startPositionTicks.compareTo(b.startPositionTicks));
+
+    final displayItem = EmbyItem(
+      id: albumDetails.id,
+      name: albumDetails.name,
+      type: albumDetails.type,
+      runTimeTicks: albumDetails.runTimeTicks,
+      albumArtist: albumDetails.albumArtist,
+      artists: albumDetails.artists,
+      imageTags: albumDetails.imageTags,
+      userData: albumDetails.userData,
+      chapters: mergedChapters,
+    );
+    final s = BookSession(
+      displayItem,
+      sources,
+      parts.first.info.playSessionId,
+      trackItemIds: trackItemIds,
+      trackPlaySessionIds: trackPlaySessionIds,
+    );
+    session = s;
+
+    final items = <MediaItem>[];
+    final audioSources = <AudioSource>[];
+    for (var i = 0; i < sources.length; i++) {
+      final source = sources[i];
+      final mediaItem = MediaItem(
+        id: source.id.isNotEmpty ? source.id : '${trackItemIds[i]}-$i',
+        title: albumDetails.name,
+        artist: albumDetails.author,
+        artUri: Uri.tryParse(api.imageUrl(albumDetails.id)),
+        duration: source.runTimeTicks != null
+            ? Duration(milliseconds: EmbyApi.ticksToMs(source.runTimeTicks!))
+            : null,
+      );
+      items.add(mediaItem);
+      audioSources.add(AudioSource.uri(
+          Uri.parse(api.streamUrl(trackItemIds[i], source)),
+          tag: mediaItem));
+    }
+    queue.add(items);
+
+    // Start position: the album's own saved position wins; otherwise
+    // the first file that has one (he plays files, and Emby keeps
+    // their positions per file).
+    var startTicks = listItem.userData?.playbackPositionTicks ??
+        albumDetails.userData?.playbackPositionTicks ??
+        0;
+    if (startTicks == 0) {
+      for (var i = 0; i < parts.length; i++) {
+        final pos = parts[i].item.userData?.playbackPositionTicks ?? 0;
+        if (pos > 0) {
+          startTicks = partStartTicks[i] + pos;
+          break;
+        }
+      }
+    }
+    await _playSession(api, s, items, audioSources, startTicks);
+    return s;
+  }
+
+  /// Shared tail of loadBook / loadAlbumBook: queue the sources,
+  /// start at the saved position, begin reporting.
+  Future<void> _playSession(EmbyApi api, BookSession s,
+      List<MediaItem> items, List<AudioSource> sources,
+      int startTicks) async {
     final (trackIndex, offsetMs) = s.locate(EmbyApi.ticksToMs(startTicks));
     if (trackIndex >= 0 && trackIndex < items.length) {
       mediaItem.add(items[trackIndex]);
@@ -139,23 +248,24 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       initialPosition: Duration(milliseconds: offsetMs),
     );
     // just_audio's play() future completes only when playback STOPS,
-    // so awaiting it would hang loadBook - and with it the app's move
-    // to the player screen - for the entire book. Fire it and move on.
+    // so awaiting it would hang the caller - and with it the app's
+    // move to the player screen - for the entire book. Fire it.
     unawaited(player.play().catchError((Object _) {}));
-    api.reportPlaying(details.id, info.playSessionId, startTicks);
+    final (rItem, rSession, rMs) =
+        s.reportTarget(EmbyApi.ticksToMs(startTicks));
+    api.reportPlaying(rItem, rSession, EmbyApi.msToTicks(rMs));
     _reportTimer?.cancel();
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _reportProgress(isPaused: !player.playing);
     });
-    return s;
   }
 
   void _reportProgress({required bool isPaused}) {
     final api = _api;
     final s = session;
     if (api == null || s == null) return;
-    api.reportProgress(s.item.id, s.playSessionId,
-        EmbyApi.msToTicks(globalPositionMs), isPaused);
+    final (id, sess, ms) = s.reportTarget(globalPositionMs);
+    api.reportProgress(id, sess, EmbyApi.msToTicks(ms), isPaused);
   }
 
   /// The player screen was closed: tell Emby the session ended at the
@@ -167,8 +277,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _reportTimer?.cancel();
     _reportTimer = null;
     if (api == null || s == null) return;
-    api.reportStopped(
-        s.item.id, s.playSessionId, EmbyApi.msToTicks(globalPositionMs));
+    final (id, sess, ms) = s.reportTarget(globalPositionMs);
+    api.reportStopped(id, sess, EmbyApi.msToTicks(ms));
   }
 
   Future<void> stopAndClear() async {

@@ -286,7 +286,7 @@ class EmbyApi {
   }) async {
     final items = await _scopedItems(
       (pid) => '$base/Users/$userId/Items/Resume?Limit=24&Recursive=true'
-          '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
+          '&IncludeItemTypes=Audio&MediaTypes=Audio'
           '&Fields=PrimaryImageAspectRatio&EnableImages=true'
           '${pid == null ? '' : '&ParentId=$pid'}',
       parentIds,
@@ -306,29 +306,54 @@ class EmbyApi {
   }
 
   /// Every audiobook the user has favorited on the server.
+  ///
+  /// Verified against the real server (2026-11-19): this library
+  /// contains NO AudioBook-typed items at all - books are plain
+  /// Audio files, and a favorite is usually set on the book's
+  /// MusicAlbum rather than on the file. (The AudioBook type filter
+  /// used before silently mapped to Audio, which is why unscoped
+  /// queries returned songs and scoped ones returned nothing.) So
+  /// favorites = favorited files + favorited albums, library-scoped.
   Future<List<EmbyItem>> favoriteItems({
     List<String> parentIds = const [],
   }) async {
-    final items = await _scopedItems(
-      (pid) => '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
-          '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
-          '&Fields=PrimaryImageAspectRatio&EnableImages=true'
-          '&SortBy=SortName&SortOrder=Ascending'
-          '${pid == null ? '' : '&ParentId=$pid'}',
-      parentIds,
-    );
-    // Last line of defence, independent of server typing and library
-    // layout: a favorite shorter than 15 minutes is a song, not a
-    // book. (Observed on device: favorite songs kept arriving typed
-    // as audiobooks.) Items with unknown runtime are kept.
+    String urlFor(String type, String? pid) =>
+        '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
+        '&IncludeItemTypes=$type'
+        '&Fields=PrimaryImageAspectRatio&EnableImages=true'
+        '&SortBy=SortName&SortOrder=Ascending'
+        '${pid == null ? '' : '&ParentId=$pid'}';
+    final audio =
+        await _scopedItems((pid) => urlFor('Audio', pid), parentIds);
+    final albums =
+        await _scopedItems((pid) => urlFor('MusicAlbum', pid), parentIds);
+    // Duration guard for files only: a favorited file shorter than
+    // 15 minutes is a song, not a book. Albums need no guard - they
+    // are library-scoped and carry the book's total runtime.
     const minBookTicks = 9000000000; // 15 min in 100ns ticks
-    return items.where((i) {
+    final files = audio.where((i) {
       final rt = i.runTimeTicks;
       return rt == null || rt >= minBookTicks;
-    }).toList();
+    });
+    return [...files, ...albums]..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 
-  /// Full item details, including the chapter list when the server has one.
+  /// The playable files of a MusicAlbum "book", in play order.
+  Future<List<EmbyItem>> albumChildren(String albumId) async {
+    final text = await _execute(_request(
+        'GET',
+        '$base/Users/$userId/Items?ParentId=$albumId'
+        '&IncludeItemTypes=Audio&SortBy=IndexNumber,SortName'
+        '&SortOrder=Ascending&Fields=PrimaryImageAspectRatio'));
+    final j = jsonDecode(text) as Map<String, dynamic>;
+    final items = (j['Items'] as List?) ?? const [];
+    return [
+      for (final v in items)
+        if (v is Map<String, dynamic>) EmbyItem.fromJson(v),
+    ];
+  }
+
   Future<EmbyItem> itemDetails(String itemId) async {
     final text = await _execute(
         _request('GET', '$base/Users/$userId/Items/$itemId?Fields=Chapters'));

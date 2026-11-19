@@ -10,6 +10,14 @@ class BookSession {
   final List<MediaSourceDto> sources;
   final String playSessionId;
 
+  /// For album books (several Audio items presented as one book):
+  /// the owning item id per source, aligned with [sources]. Null
+  /// when every source belongs to [item] (the single-item case).
+  final List<String>? trackItemIds;
+
+  /// Play session id per source, aligned with [sources].
+  final List<String>? trackPlaySessionIds;
+
   /// Start offset of each track within the book, in milliseconds.
   late final List<int> trackStartsMs;
 
@@ -18,7 +26,8 @@ class BookSession {
 
   late final List<ChapterDto> chapters;
 
-  BookSession(this.item, this.sources, this.playSessionId) {
+  BookSession(this.item, this.sources, this.playSessionId,
+      {this.trackItemIds, this.trackPlaySessionIds}) {
     final durations = sources
         .map((s) =>
             s.runTimeTicks != null ? EmbyApi.ticksToMs(s.runTimeTicks!) : 0)
@@ -58,6 +67,23 @@ class BookSession {
 
   int chapterStartMs(ChapterDto chapter) =>
       EmbyApi.ticksToMs(chapter.startPositionTicks);
+
+  /// Where a position report for [globalMs] belongs: the item id,
+  /// play session id and position (ms) to report. Single-item books
+  /// report the book-global position against the item itself; album
+  /// books report the position within the current file against that
+  /// file, because Emby keeps resume points per file.
+  (String, String, int) reportTarget(int globalMs) {
+    final ids = trackItemIds;
+    if (ids == null || ids.isEmpty) return (item.id, playSessionId, globalMs);
+    final (idx, offset) = locate(globalMs);
+    final i = idx < ids.length ? idx : ids.length - 1;
+    final sessions = trackPlaySessionIds;
+    final sid = (sessions != null && i < sessions.length)
+        ? sessions[i]
+        : playSessionId;
+    return (ids[i], sid, offset);
+  }
 
   int currentChapterIndex(int globalMs) {
     var idx = -1;

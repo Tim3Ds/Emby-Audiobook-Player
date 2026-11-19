@@ -128,9 +128,45 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
       } catch (_) {
         details = item;
       }
-      final info = await api.playbackInfo(item.id);
-      final session =
-          await handler.loadBook(api, details, info, listItem: item);
+      final BookSession session;
+      if (item.type == 'MusicAlbum') {
+        // A "book" on this server is an album of Audio files.
+        final children = await api.albumChildren(item.id);
+        if (children.isEmpty) {
+          throw Exception('This album has no playable audio files.');
+        }
+        if (children.length == 1) {
+          // One-file book: open the file itself, so its own resume
+          // position and chapters drive the session.
+          final child = children.first;
+          EmbyItem childDetails;
+          try {
+            childDetails = await api.itemDetails(child.id);
+          } catch (_) {
+            childDetails = child;
+          }
+          final info = await api.playbackInfo(child.id);
+          session =
+              await handler.loadBook(api, childDetails, info, listItem: child);
+        } else {
+          final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
+          for (final child in children) {
+            EmbyItem childDetails;
+            try {
+              childDetails = await api.itemDetails(child.id);
+            } catch (_) {
+              childDetails = child;
+            }
+            final info = await api.playbackInfo(child.id);
+            parts.add((item: childDetails, info: info));
+          }
+          session =
+              await handler.loadAlbumBook(api, details, parts, listItem: item);
+        }
+      } else {
+        final info = await api.playbackInfo(item.id);
+        session = await handler.loadBook(api, details, info, listItem: item);
+      }
       if (!mounted) return;
       setState(() {
         _playerSession = session;
