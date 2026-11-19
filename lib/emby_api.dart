@@ -27,17 +27,20 @@ class UserDataDto {
   final double? playedPercentage;
   final bool isFavorite;
   final bool played;
+  final int playCount;
   const UserDataDto({
     this.playbackPositionTicks = 0,
     this.playedPercentage,
     this.isFavorite = false,
     this.played = false,
+    this.playCount = 0,
   });
   factory UserDataDto.fromJson(Map<String, dynamic> j) => UserDataDto(
         playbackPositionTicks: (j['PlaybackPositionTicks'] as num?)?.toInt() ?? 0,
         playedPercentage: (j['PlayedPercentage'] as num?)?.toDouble(),
         isFavorite: j['IsFavorite'] as bool? ?? false,
         played: j['Played'] as bool? ?? false,
+        playCount: (j['PlayCount'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -56,6 +59,10 @@ class EmbyItem {
   final String name;
   final String type;
   final int? runTimeTicks;
+  final String? path;
+  final String? album;
+  final String? albumId;
+  final int? indexNumber;
   final String? albumArtist;
   final List<String> artists;
   final Map<String, dynamic> imageTags;
@@ -67,6 +74,10 @@ class EmbyItem {
     this.name = '',
     this.type = '',
     this.runTimeTicks,
+    this.path,
+    this.album,
+    this.albumId,
+    this.indexNumber,
     this.albumArtist,
     this.artists = const [],
     this.imageTags = const {},
@@ -79,6 +90,10 @@ class EmbyItem {
         name: j['Name'] as String? ?? '',
         type: j['Type'] as String? ?? '',
         runTimeTicks: (j['RunTimeTicks'] as num?)?.toInt(),
+        path: j['Path'] as String?,
+        album: j['Album'] as String?,
+        albumId: j['AlbumId'] as String?,
+        indexNumber: (j['IndexNumber'] as num?)?.toInt(),
         albumArtist: j['AlbumArtist'] as String?,
         artists: (j['Artists'] as List?)?.map((e) => e.toString()).toList() ??
             const [],
@@ -281,6 +296,20 @@ class EmbyApi {
   }
 
   /// Books with a saved position — the "currently playing" shelf.
+  /// Every Audio item in the given libraries, with the fields the
+  /// series logic needs (path, album, index). One request per
+  /// library; his audiobooks library answers ~3.5k items in ~2s.
+  Future<List<EmbyItem>> libraryAudioItems(List<String> parentIds) {
+    return _scopedItems(
+      (pid) => '$base/Users/$userId/Items?Recursive=true'
+          '&IncludeItemTypes=Audio'
+          '&Fields=Path,AlbumId,IndexNumber,PrimaryImageAspectRatio'
+          '&EnableImages=true'
+          '${pid == null ? '' : '&ParentId=$pid'}',
+      parentIds,
+    );
+  }
+
   Future<List<EmbyItem>> resumeItems({
     List<String> parentIds = const [],
   }) async {

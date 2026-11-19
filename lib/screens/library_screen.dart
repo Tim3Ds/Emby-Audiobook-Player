@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../emby_api.dart';
+import '../series.dart';
 
 class LibraryScreen extends StatefulWidget {
   final EmbyApi api;
@@ -22,6 +23,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   List<EmbyItem> _resume = const [];
   List<EmbyItem> _favorites = const [];
+  List<NextUpEntry> _nextUp = const [];
   bool _loading = true;
   String? _error;
 
@@ -47,10 +49,24 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final bookLibs = await widget.api.bookLibraryIds();
       final resume = await widget.api.resumeItems();
       final favorites = await widget.api.favoriteItems(parentIds: bookLibs);
+      // Next Up in Series needs a full scan of the book libraries.
+      // It is best-effort: if the scan fails, the shelf just stays
+      // hidden - the two shelves above are the app's core.
+      var nextUp = const <NextUpEntry>[];
+      if (bookLibs.isNotEmpty) {
+        try {
+          final scan = await widget.api.libraryAudioItems(bookLibs);
+          nextUp = computeNextUp(scan,
+              inProgressIds: resume.map((e) => e.id).toSet());
+        } catch (_) {
+          nextUp = const [];
+        }
+      }
       if (!mounted) return;
       setState(() {
         _resume = resume;
         _favorites = favorites;
+        _nextUp = nextUp;
         _loading = false;
       });
     } catch (e) {
@@ -103,6 +119,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       const LinearProgressIndicator(),
                     _section(context, 'Continue Listening', _resume,
                         'Nothing in progress right now.'),
+                    if (_nextUp.isNotEmpty)
+                      _section(
+                        context,
+                        'Next Up in Series',
+                        _nextUp.map((e) => e.item).toList(),
+                        '',
+                        subtitleFor: (item) {
+                          final e = _nextUp.firstWhere(
+                              (x) => x.item.id == item.id,
+                              orElse: () => _nextUp.first);
+                          return '${e.seriesName} · ${e.bookLabel}';
+                        },
+                      ),
                     _section(context, 'Favorites', _favorites,
                         'No favorite audiobooks yet — favorite a book in Emby and it shows up here.'),
                   ],
@@ -110,8 +139,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     );
   }
 
-  Widget _section(
-      BuildContext context, String title, List<EmbyItem> items, String emptyText) {
+  Widget _section(BuildContext context, String title, List<EmbyItem> items,
+      String emptyText,
+      {String? Function(EmbyItem)? subtitleFor}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -129,6 +159,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ...items.map((item) => _BookRow(
                 api: widget.api,
                 item: item,
+                subtitleText: subtitleFor?.call(item),
                 onTap: () => widget.onOpenBook(item),
               )),
       ],
@@ -139,8 +170,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
 class _BookRow extends StatelessWidget {
   final EmbyApi api;
   final EmbyItem item;
+  final String? subtitleText;
   final VoidCallback onTap;
-  const _BookRow({required this.api, required this.item, required this.onTap});
+  const _BookRow(
+      {required this.api,
+      required this.item,
+      this.subtitleText,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -162,7 +198,10 @@ class _BookRow extends StatelessWidget {
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (item.author.isNotEmpty)
+          if (subtitleText != null)
+            Text(subtitleText!,
+                maxLines: 1, overflow: TextOverflow.ellipsis)
+          else if (item.author.isNotEmpty)
             Text(item.author, maxLines: 1, overflow: TextOverflow.ellipsis),
           if (progress != null) ...[
             const SizedBox(height: 6),
