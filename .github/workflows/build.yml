@@ -37,6 +37,23 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Restore signing key
+        # The keystore and its password live in repo secrets (the repo
+        # is public; the key must never be committed). Restoring the
+        # same key on every run is what makes updates installable.
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/release.keystore
+          {
+            echo "storePassword=$KEYSTORE_PASSWORD"
+            echo "keyPassword=$KEY_PASSWORD"
+            echo "keyAlias=audiobooks"
+            echo "storeFile=release.keystore"
+          } > android/key.properties
+
       - name: Build release APK
         # The Gradle plugin portal intermittently 404s the Kotlin plugin
         # artifacts on first request (seen on v0.2.2, v0.2.5, v0.2.6 first
