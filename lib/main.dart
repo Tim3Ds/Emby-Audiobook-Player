@@ -95,8 +95,22 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     // Audio focus: the speech configuration uses Android's
     // "transient may duck" gain — notification sounds duck the book
     // instead of pausing it.
+    // Audio focus: DUCK, never pause, for transient sounds. The
+    // stock speech() recipe sounds right for audiobooks but actually
+    // requests full "gain" focus with willPauseWhenDucked=true - so
+    // every notification paused the book, and on focus return the
+    // player could stall silent while still showing "playing" (the
+    // exact Emby-app behaviour this app exists to escape). Keeping
+    // the speech attributes but switching to transient-may-duck
+    // gain with willPauseWhenDucked=false makes Android lower the
+    // book's volume for the notification and restore it after -
+    // the Symfonium behaviour.
     final audioSession = await AudioSession.instance;
-    await audioSession.configure(const AudioSessionConfiguration.speech());
+    await audioSession.configure(AudioSessionConfiguration.speech().copyWith(
+      androidAudioFocusGainType:
+          AndroidAudioFocusGainType.gainTransientMayDuck,
+      androidWillPauseWhenDucked: false,
+    ));
     final handler = await AudioService.init(
       builder: () => BookAudioHandler(),
       config: const AudioServiceConfig(

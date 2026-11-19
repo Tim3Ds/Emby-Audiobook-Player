@@ -10,11 +10,13 @@ import 'emby_api.dart';
 ///
 /// The player lives here, not in the UI, so books keep playing with the
 /// screen off, driven by the system media notification and lock-screen
-/// controls. Audio focus is configured in main() with
-/// AudioSessionConfiguration.speech(), whose Android gain type is
-/// "transient may duck": a notification sound DUCKS the book briefly
-/// instead of pausing/freezing it — the exact behaviour the Emby app
-/// gets wrong.
+/// controls. Audio focus is configured in main(): speech attributes
+/// with transient-may-duck gain and willPauseWhenDucked=false, so a
+/// notification sound DUCKS the book briefly instead of pausing it —
+/// the exact behaviour the Emby app gets wrong. (The stock speech()
+/// recipe pauses when ducked; see main.dart.) A watchdog below also
+/// auto-recovers the rare stall where the player reports playing
+/// but the position no longer advances.
 ///
 /// Emby position sync lives here too: Playing on load, Progress every
 /// ~10s and on pause, Stopped when the book is closed.
@@ -258,6 +260,57 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _reportProgress(isPaused: !player.playing);
     });
+    _watchdog?.cancel();
+    _lastPosMs = -1;
+    _stallSince = null;
+    _watchdog =
+        Timer.periodic(const Duration(seconds: 1), (_) => _watchdogTick());
+  }
+
+  // ---- Stall watchdog -------------------------------------------------
+  // If the player claims to be playing but the position has not
+  // moved for several seconds, the audio stack has wedged - seen
+  // after audio-focus interruptions: the UI shows "playing", no
+  // sound comes out, and only a manual pause/play unwedges it.
+  // Do that pause/play automatically. Ducking never trips this:
+  // a ducked book's position keeps advancing.
+  int _lastPosMs = -1;
+  DateTime? _stallSince;
+  bool _nudging = false;
+  Timer? _watchdog;
+
+  void _watchdogTick() {
+    if (session == null) return;
+    final pos = globalPositionMs;
+    final wedged = player.playing &&
+        player.processingState == ProcessingState.ready;
+    if (!wedged || pos != _lastPosMs) {
+      _lastPosMs = pos;
+      _stallSince = null;
+      return;
+    }
+    _stallSince ??= DateTime.now();
+    if (!_nudging &&
+        DateTime.now().difference(_stallSince!) >=
+            const Duration(seconds: 3)) {
+      _stallSince = null;
+      _nudging = true;
+      unawaited(_recoverStall());
+    }
+  }
+
+  Future<void> _recoverStall() async {
+    try {
+      await player.pause();
+      await Future<void>.delayed(const Duration(milliseconds: 300));
+      // play()'s future completes only when playback stops; never
+      // await it (the loadBook lesson).
+      unawaited(player.play().catchError((Object _) {}));
+    } catch (_) {
+      // Best effort only.
+    } finally {
+      _nudging = false;
+    }
   }
 
   void _reportProgress({required bool isPaused}) {
@@ -276,6 +329,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final s = session;
     _reportTimer?.cancel();
     _reportTimer = null;
+    _watchdog?.cancel();
+    _watchdog = null;
     if (api == null || s == null) return;
     final (id, sess, ms) = s.reportTarget(globalPositionMs);
     api.reportStopped(id, sess, EmbyApi.msToTicks(ms));

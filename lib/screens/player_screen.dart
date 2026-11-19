@@ -101,6 +101,25 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ? session.chapters[chapterIdx].name
         : null;
     final shownMs = _scrubbing ? _scrubMs : _globalMs.toDouble();
+    // Chapter label with ONE numbering. Emby chapter names often
+    // embed their own number ("Chapter 21") that can disagree with
+    // the chapter's actual position (22nd of 42), which made the
+    // label look off by one. A leading "Chapter N" in the name is
+    // dropped; the position shown is always the true index.
+    String? chapterLabel;
+    if (chapterIdx >= 0) {
+      final total = session.chapters.length;
+      final raw = chapterName ?? '';
+      final m = RegExp(r'^\s*chapter\s+\d+\s*[-:.)]?\s*',
+              caseSensitive: false)
+          .firstMatch(raw);
+      final title = m != null ? raw.substring(m.end).trim() : raw.trim();
+      chapterLabel = total > 1
+          ? (title.isEmpty
+              ? 'Chapter ${chapterIdx + 1} of $total'
+              : '$title (${chapterIdx + 1}/$total)')
+          : (title.isEmpty ? 'Chapter ${chapterIdx + 1}' : title);
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -146,10 +165,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 [
                   if (session.sources.length > 1)
                     'Track ${_trackIndex + 1} of ${session.sources.length}',
-                  if (chapterName != null)
-                    session.chapters.length > 1
-                        ? '$chapterName (${chapterIdx + 1}/${session.chapters.length})'
-                        : chapterName,
+                  if (chapterLabel != null) chapterLabel,
                 ].join(' · '),
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
@@ -182,13 +198,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.skip_previous, size: 32),
-                    tooltip: 'Previous track',
-                    onPressed: session.sources.length > 1
-                        ? () => handler.skipToPrevious()
-                        : null,
-                  ),
+                  if (session.sources.length > 1)
+                    IconButton(
+                      icon: const Icon(Icons.skip_previous, size: 32),
+                      tooltip: 'Previous track',
+                      onPressed: () => handler.skipToPrevious(),
+                    )
+                  else
+                    // Single-file book: no track buttons to grey out.
+                    const SizedBox(width: 48),
                   Column(
                     children: [
                       IconButton(
@@ -197,8 +215,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         onPressed: () =>
                             _seekGlobal(_globalMs - _skipBack * 1000),
                       ),
-                      Text('-${_skipBack}s',
-                          style: Theme.of(context).textTheme.labelSmall),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        onPressed: () => setState(() {
+                          _skipBack =
+                              _nextIn(_skipBack, const [5, 10, 15, 30]);
+                          widget.store.skipBackSec = _skipBack;
+                        }),
+                        child: Text('-${_skipBack}s'),
+                      ),
                     ],
                   ),
                   SizedBox(
@@ -208,29 +238,56 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       style: FilledButton.styleFrom(shape: const CircleBorder()),
                       onPressed: () =>
                           _isPlaying ? handler.pause() : handler.play(),
-                      child: Icon(_isPlaying ? Icons.pause : Icons.play_arrow,
-                          size: 36),
+                      child: _isPlaying
+                          ? const Icon(Icons.pause, size: 36)
+                          : Transform.translate(
+                              // A play triangle's visual weight sits
+                              // left of its box; nudge it so it reads
+                              // as centred in the circle.
+                              offset: const Offset(3, 0),
+                              child: const Icon(Icons.play_arrow, size: 36),
+                            ),
                     ),
                   ),
                   Column(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.forward_30, size: 32),
+                        // Mirrored replay icon: number-free, matching
+                        // the back button. (The old forward_30 glyph
+                        // claimed 30s whatever the real setting was.)
+                        icon: Transform(
+                          alignment: Alignment.center,
+                          transform: Matrix4.identity()..scale(-1.0, 1.0),
+                          child: const Icon(Icons.replay, size: 32),
+                        ),
                         tooltip: 'Skip forward',
                         onPressed: () =>
                             _seekGlobal(_globalMs + _skipFwd * 1000),
                       ),
-                      Text('+${_skipFwd}s',
-                          style: Theme.of(context).textTheme.labelSmall),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          textStyle: Theme.of(context).textTheme.labelSmall,
+                        ),
+                        onPressed: () => setState(() {
+                          _skipFwd =
+                              _nextIn(_skipFwd, const [10, 15, 30, 45, 60]);
+                          widget.store.skipForwardSec = _skipFwd;
+                        }),
+                        child: Text('+${_skipFwd}s'),
+                      ),
                     ],
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.skip_next, size: 32),
-                    tooltip: 'Next track',
-                    onPressed: session.sources.length > 1
-                        ? () => handler.skipToNext()
-                        : null,
-                  ),
+                  if (session.sources.length > 1)
+                    IconButton(
+                      icon: const Icon(Icons.skip_next, size: 32),
+                      tooltip: 'Next track',
+                      onPressed: () => handler.skipToNext(),
+                    )
+                  else
+                    const SizedBox(width: 48),
                 ],
               ),
               if (session.chapters.isNotEmpty) ...[
@@ -264,28 +321,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         setState(() => _speed = s);
                       },
                     ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              // Skip interval settings
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _skipBack = _nextIn(_skipBack, const [5, 10, 15, 30]);
-                      widget.store.skipBackSec = _skipBack;
-                    }),
-                    child: Text('Skip back: ${_skipBack}s'),
-                  ),
-                  TextButton(
-                    onPressed: () => setState(() {
-                      _skipFwd =
-                          _nextIn(_skipFwd, const [10, 15, 30, 45, 60]);
-                      widget.store.skipForwardSec = _skipFwd;
-                    }),
-                    child: Text('Skip fwd: ${_skipFwd}s'),
-                  ),
                 ],
               ),
             ],
