@@ -207,11 +207,20 @@ class EmbyApi {
         '&Fields=PrimaryImageAspectRatio&EnableImages=true';
     final text = await _execute(_request('GET', url));
     final j = jsonDecode(text) as Map<String, dynamic>;
-    return (j['Items'] as List?)
+    final items = (j['Items'] as List?)
             ?.whereType<Map<String, dynamic>>()
             .map(EmbyItem.fromJson)
             .toList() ??
-        const [];
+        const <EmbyItem>[];
+    // Emby's Resume endpoint also returns books that merely have user
+    // data on file (e.g. every later book in a series the user has
+    // touched), which made Continue Listening list whole series runs.
+    // "Continue" means: a saved position exists and the book is not
+    // finished — the same definition Emby's own apps show.
+    return items.where((i) {
+      final ud = i.userData;
+      return ud != null && ud.playbackPositionTicks > 0 && !ud.played;
+    }).toList();
   }
 
   /// Every audiobook the user has favorited on the server.
