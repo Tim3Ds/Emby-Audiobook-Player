@@ -34,6 +34,17 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       }
       _wasPlaying = playing;
     });
+    // Android draws the media notification and lock-screen controls
+    // from the handler's current media item. Publishing only the queue
+    // and playback state (v0.2.0-v0.2.5) left mediaItem unset, so on
+    // device the audio played but no system controls ever appeared.
+    // Keep mediaItem tracking the player's current source tag.
+    player.sequenceStateStream.listen((sequenceState) {
+      final tag = sequenceState.currentSource?.tag;
+      if (tag is MediaItem) {
+        mediaItem.add(tag);
+      }
+    });
   }
 
   PlaybackState _transformEvent(PlaybackEvent event) {
@@ -106,6 +117,9 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         details.userData?.playbackPositionTicks ??
         0;
     final (trackIndex, offsetMs) = s.locate(EmbyApi.ticksToMs(startTicks));
+    if (trackIndex >= 0 && trackIndex < items.length) {
+      mediaItem.add(items[trackIndex]);
+    }
     await player.setAudioSources(
       sources,
       initialIndex: trackIndex,
