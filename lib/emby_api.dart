@@ -227,9 +227,10 @@ class EmbyApi {
     return out;
   }
 
-  /// Ids of the user's libraries whose collection type is "books".
-  /// Scoping the book lists to these libraries keeps music out even
-  /// when the server types music items unexpectedly.
+  /// Ids of the user's book libraries. Emby types an audiobook
+  /// library "audiobooks" (distinct from the "books" ebook type);
+  /// both count. Scoping the book lists to these libraries keeps
+  /// music out even when the server types music items unexpectedly.
   Future<List<String>> bookLibraryIds() async {
     final text =
         await _execute(_request('GET', '$base/Users/$userId/Views'));
@@ -238,7 +239,8 @@ class EmbyApi {
     return [
       for (final v in items)
         if (v is Map<String, dynamic> &&
-            v['CollectionType'] == 'books' &&
+            (v['CollectionType'] == 'books' ||
+                v['CollectionType'] == 'audiobooks') &&
             v['Id'] is String)
           v['Id'] as String,
     ];
@@ -258,11 +260,14 @@ class EmbyApi {
     // Emby's Resume endpoint also returns books that merely have user
     // data on file (e.g. every later book in a series the user has
     // touched), which made Continue Listening list whole series runs.
-    // "Continue" means: a saved position exists and the book is not
-    // finished — the same definition Emby's own apps show.
+    // "Continue" means a saved position exists. The played flag must
+    // NOT exclude an item: Emby's own Continue Listening keeps books
+    // that carry its played checkmark as long as they have a position
+    // (observed on device), and finished books drop out on their own
+    // because marking them played resets their position to zero.
     return items.where((i) {
       final ud = i.userData;
-      return ud != null && ud.playbackPositionTicks > 0 && !ud.played;
+      return ud != null && ud.playbackPositionTicks > 0;
     }).toList();
   }
 
