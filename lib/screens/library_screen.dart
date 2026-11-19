@@ -37,23 +37,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _error = null;
     });
     try {
-      // Scope both lists to the books library so music cannot leak in.
+      // Favorites are scoped to the book libraries (plus a duration
+      // guard in the API layer) so music cannot leak in. There is
+      // deliberately NO unscoped fallback: twice on device it
+      // "rescued" an empty scoped result by replacing it with the
+      // unscoped list, songs and all. An honestly empty shelf beats
+      // a wrong one. Continue Listening needs no scoping - its
+      // saved-position filter is the reliable mechanism.
       final bookLibs = await widget.api.bookLibraryIds();
-      var resume = await widget.api.resumeItems(parentIds: bookLibs);
-      var favorites = await widget.api.favoriteItems(parentIds: bookLibs);
-      if (bookLibs.isNotEmpty) {
-        // Safety net: if library scoping hid everything (the books
-        // living in a differently-typed library), fall back to the
-        // unscoped queries rather than showing empty shelves.
-        if (resume.isEmpty) {
-          final unscoped = await widget.api.resumeItems();
-          if (unscoped.isNotEmpty) resume = unscoped;
-        }
-        if (favorites.isEmpty) {
-          final unscoped = await widget.api.favoriteItems();
-          if (unscoped.isNotEmpty) favorites = unscoped;
-        }
-      }
+      final resume = await widget.api.resumeItems();
+      final favorites = await widget.api.favoriteItems(parentIds: bookLibs);
       if (!mounted) return;
       setState(() {
         _resume = resume;

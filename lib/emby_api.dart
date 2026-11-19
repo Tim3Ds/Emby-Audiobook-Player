@@ -232,18 +232,52 @@ class EmbyApi {
   /// both count. Scoping the book lists to these libraries keeps
   /// music out even when the server types music items unexpectedly.
   Future<List<String>> bookLibraryIds() async {
-    final text =
-        await _execute(_request('GET', '$base/Users/$userId/Views'));
-    final j = jsonDecode(text) as Map<String, dynamic>;
-    final items = (j['Items'] as List?) ?? const [];
-    return [
-      for (final v in items)
-        if (v is Map<String, dynamic> &&
-            (v['CollectionType'] == 'books' ||
-                v['CollectionType'] == 'audiobooks') &&
-            v['Id'] is String)
-          v['Id'] as String,
-    ];
+    final ids = <String>{};
+    bool isBookType(Object? ct) {
+      final s = (ct as String?)?.toLowerCase();
+      return s == 'books' || s == 'audiobooks';
+    }
+
+    // The library configuration is the authoritative source for
+    // collection types (Views do not always carry them). This
+    // endpoint may require elevated rights; failure just skips it.
+    try {
+      final text =
+          await _execute(_request('GET', '$base/Library/VirtualFolders'));
+      final folders = jsonDecode(text);
+      if (folders is List) {
+        for (final f in folders) {
+          if (f is Map<String, dynamic> &&
+              isBookType(f['CollectionType']) &&
+              f['ItemId'] is String) {
+            ids.add(f['ItemId'] as String);
+          }
+        }
+      }
+    } catch (_) {
+      // Not fatal: the Views pass below still applies.
+    }
+
+    // Views: match on collection type, or on a library name that
+    // says it holds audio books (e.g. "Audio books").
+    try {
+      final text =
+          await _execute(_request('GET', '$base/Users/$userId/Views'));
+      final j = jsonDecode(text) as Map<String, dynamic>;
+      final items = (j['Items'] as List?) ?? const [];
+      for (final v in items) {
+        if (v is! Map<String, dynamic> || v['Id'] is! String) continue;
+        final name = (v['Name'] as String? ?? '').toLowerCase();
+        final nameSaysAudioBooks =
+            name.contains('audio') && name.contains('book');
+        if (isBookType(v['CollectionType']) || nameSaysAudioBooks) {
+          ids.add(v['Id'] as String);
+        }
+      }
+    } catch (_) {
+      // Keep whatever VirtualFolders found.
+    }
+    return ids.toList();
   }
 
   /// Books with a saved position — the "currently playing" shelf.
@@ -275,7 +309,7 @@ class EmbyApi {
   Future<List<EmbyItem>> favoriteItems({
     List<String> parentIds = const [],
   }) async {
-    return _scopedItems(
+    final items = await _scopedItems(
       (pid) => '$base/Users/$userId/Items?Recursive=true&Filters=IsFavorite'
           '&IncludeItemTypes=AudioBook&MediaTypes=Audio'
           '&Fields=PrimaryImageAspectRatio&EnableImages=true'
@@ -283,6 +317,15 @@ class EmbyApi {
           '${pid == null ? '' : '&ParentId=$pid'}',
       parentIds,
     );
+    // Last line of defence, independent of server typing and library
+    // layout: a favorite shorter than 15 minutes is a song, not a
+    // book. (Observed on device: favorite songs kept arriving typed
+    // as audiobooks.) Items with unknown runtime are kept.
+    const minBookTicks = 9000000000; // 15 min in 100ns ticks
+    return items.where((i) {
+      final rt = i.runTimeTicks;
+      return rt == null || rt >= minBookTicks;
+    }).toList();
   }
 
   /// Full item details, including the chapter list when the server has one.
