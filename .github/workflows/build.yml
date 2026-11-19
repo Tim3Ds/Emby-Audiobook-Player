@@ -53,6 +53,7 @@ jobs:
                   repositories {
                       mavenCentral()
                       google()
+                      gradlePluginPortal()
                   }
               }
           }
@@ -61,6 +62,7 @@ jobs:
                   repositories {
                       mavenCentral()
                       google()
+                      gradlePluginPortal()
                   }
               }
           }
