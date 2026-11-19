@@ -152,7 +152,15 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Audiobooks for Emby',
-      theme: ThemeData(colorSchemeSeed: const Color(0xFF0F5257)),
+      // Themed on the app icon (Timothy's artwork): layered greens on a
+      // near-black backdrop. The app runs in the dark scheme to match.
+      themeMode: ThemeMode.dark,
+      theme: ThemeData(colorSchemeSeed: const Color(0xFF46A34E)),
+      darkTheme: ThemeData(
+        brightness: Brightness.dark,
+        colorSchemeSeed: const Color(0xFF46A34E),
+        scaffoldBackgroundColor: const Color(0xFF0D0E11),
+      ),
       home: _body(),
     );
   }
