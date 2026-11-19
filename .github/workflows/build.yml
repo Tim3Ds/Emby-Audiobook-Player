@@ -38,7 +38,20 @@ jobs:
         run: flutter pub get
 
       - name: Build release APK
-        run: flutter build apk --release
+        # The Gradle plugin portal intermittently 404s the Kotlin plugin
+        # artifacts on first request (seen on v0.2.2, v0.2.5, v0.2.6 first
+        # attempts; re-runs always succeeded). Retry in-run instead of
+        # failing the whole build on a download flake.
+        run: |
+          for attempt in 1 2 3; do
+            if flutter build apk --release; then
+              exit 0
+            fi
+            echo "Build attempt $attempt failed; retrying in 30s..."
+            sleep 30
+          done
+          echo "Build failed after 3 attempts"
+          exit 1
 
       - name: Name the APK
         id: apk
