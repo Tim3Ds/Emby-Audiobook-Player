@@ -44,6 +44,12 @@ class SessionStore {
   int get skipBackSec => _prefs.getInt('skipBackSec') ?? 15;
   set skipBackSec(int v) => _prefs.setInt('skipBackSec', v);
 
+  /// Whether tapping a book in Favorites / Next Up in Series starts
+  /// playing it immediately. Default off (Timothy's request): those
+  /// shelves are for choosing; Continue Listening always resumes.
+  bool get autoplayFromLists => _prefs.getBool('autoplayFromLists') ?? false;
+  set autoplayFromLists(bool v) => _prefs.setBool('autoplayFromLists', v);
+
   bool get isSignedIn => token.isNotEmpty && userId.isNotEmpty;
 
   void signOut() {

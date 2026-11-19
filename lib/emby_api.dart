@@ -296,6 +296,41 @@ class EmbyApi {
   }
 
   /// Books with a saved position — the "currently playing" shelf.
+  /// The book libraries the app scopes its shelves to, with their
+  /// display names - shown in Settings so the filtering is visible
+  /// rather than magic.
+  Future<List<({String id, String name})>> bookLibraries() async {
+    final ids = await bookLibraryIds();
+    if (ids.isEmpty) return const [];
+    final names = <String, String>{};
+    try {
+      final text =
+          await _execute(_request('GET', '$base/Library/VirtualFolders'));
+      final list = jsonDecode(text) as List<dynamic>;
+      for (final v in list) {
+        if (v is Map<String, dynamic>) {
+          final id = v['ItemId'] as String?;
+          final name = v['Name'] as String?;
+          if (id != null && name != null) names[id] = name;
+        }
+      }
+    } catch (_) {
+      // Names are a nicety; fall through to the Views lookup.
+    }
+    try {
+      final text = await _execute(_request('GET', '$base/Users/$userId/Views'));
+      final j = jsonDecode(text) as Map<String, dynamic>;
+      for (final v in (j['Items'] as List?) ?? const []) {
+        if (v is Map<String, dynamic>) {
+          final id = v['Id'] as String?;
+          final name = v['Name'] as String?;
+          if (id != null && name != null) names.putIfAbsent(id, () => name);
+        }
+      }
+    } catch (_) {}
+    return [for (final id in ids) (id: id, name: names[id] ?? 'Library')];
+  }
+
   /// Every Audio item in the given libraries, with the fields the
   /// series logic needs (path, album, index). One request per
   /// library; his audiobooks library answers ~3.5k items in ~2s.

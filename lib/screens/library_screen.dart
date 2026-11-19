@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../emby_api.dart';
+import '../session_store.dart';
 import '../series.dart';
 
 class LibraryScreen extends StatefulWidget {
   final EmbyApi api;
-  final void Function(EmbyItem item) onOpenBook;
+  final SessionStore store;
+  final void Function(EmbyItem item, bool autoplay) onOpenBook;
+  final VoidCallback onOpenSettings;
   final VoidCallback onSignOut;
   final bool openingBook;
   const LibraryScreen({
     super.key,
     required this.api,
+    required this.store,
     required this.onOpenBook,
+    required this.onOpenSettings,
     required this.onSignOut,
     required this.openingBook,
   });
@@ -90,6 +95,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: _loading ? null : _load,
           ),
           IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: widget.onOpenSettings,
+          ),
+          IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Sign out',
             onPressed: widget.onSignOut,
@@ -125,6 +135,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         'Next Up in Series',
                         _nextUp.map((e) => e.item).toList(),
                         '',
+                        autoplay: widget.store.autoplayFromLists,
                         subtitleFor: (item) {
                           final e = _nextUp.firstWhere(
                               (x) => x.item.id == item.id,
@@ -133,7 +144,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                         },
                       ),
                     _section(context, 'Favorites', _favorites,
-                        'No favorite audiobooks yet — favorite a book in Emby and it shows up here.'),
+                        'No favorite audiobooks yet — favorite a book in Emby and it shows up here.',
+                        autoplay: widget.store.autoplayFromLists),
                   ],
                 ),
     );
@@ -141,7 +153,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Widget _section(BuildContext context, String title, List<EmbyItem> items,
       String emptyText,
-      {String? Function(EmbyItem)? subtitleFor}) {
+      {String? Function(EmbyItem)? subtitleFor, bool autoplay = true}) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -160,7 +172,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 api: widget.api,
                 item: item,
                 subtitleText: subtitleFor?.call(item),
-                onTap: () => widget.onOpenBook(item),
+                onTap: () => widget.onOpenBook(item, autoplay),
               )),
       ],
     );

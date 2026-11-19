@@ -101,6 +101,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     EmbyItem details,
     PlaybackInfoResponse info, {
     required EmbyItem listItem,
+    bool autoplay = true,
   }) async {
     // Switching books: close out the previous book's session at its
     // current position first, so its place is saved too.
@@ -131,7 +132,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     final startTicks = listItem.userData?.playbackPositionTicks ??
         details.userData?.playbackPositionTicks ??
         0;
-    await _playSession(api, s, items, sources, startTicks);
+    await _playSession(api, s, items, sources, startTicks,
+        autoplay: autoplay);
     return s;
   }
 
@@ -144,6 +146,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     EmbyItem albumDetails,
     List<({EmbyItem item, PlaybackInfoResponse info})> parts, {
     required EmbyItem listItem,
+    bool autoplay = true,
   }) async {
     if (session != null) reportStoppedNow();
     _api = api;
@@ -231,15 +234,16 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         }
       }
     }
-    await _playSession(api, s, items, audioSources, startTicks);
+    await _playSession(api, s, items, audioSources, startTicks,
+        autoplay: autoplay);
     return s;
   }
 
   /// Shared tail of loadBook / loadAlbumBook: queue the sources,
   /// start at the saved position, begin reporting.
   Future<void> _playSession(EmbyApi api, BookSession s,
-      List<MediaItem> items, List<AudioSource> sources,
-      int startTicks) async {
+      List<MediaItem> items, List<AudioSource> sources, int startTicks,
+      {bool autoplay = true}) async {
     final (trackIndex, offsetMs) = s.locate(EmbyApi.ticksToMs(startTicks));
     if (trackIndex >= 0 && trackIndex < items.length) {
       mediaItem.add(items[trackIndex]);
@@ -249,13 +253,20 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       initialIndex: trackIndex,
       initialPosition: Duration(milliseconds: offsetMs),
     );
-    // just_audio's play() future completes only when playback STOPS,
-    // so awaiting it would hang the caller - and with it the app's
-    // move to the player screen - for the entire book. Fire it.
-    unawaited(player.play().catchError((Object _) {}));
+    if (autoplay) {
+      // just_audio's play() future completes only when playback
+      // STOPS, so awaiting it would hang the caller - and with it
+      // the app's move to the player screen - for the entire book.
+      // Fire it.
+      unawaited(player.play().catchError((Object _) {}));
+    }
+    // With autoplay off (Favorites / Next Up, unless the setting
+    // says otherwise) the book opens cued at its saved position,
+    // paused - the user presses play when they mean it.
     final (rItem, rSession, rMs) =
         s.reportTarget(EmbyApi.ticksToMs(startTicks));
     api.reportPlaying(rItem, rSession, EmbyApi.msToTicks(rMs));
+    if (!autoplay) _reportProgress(isPaused: true);
     _reportTimer?.cancel();
     _reportTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       _reportProgress(isPaused: !player.playing);

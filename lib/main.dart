@@ -11,6 +11,7 @@ import 'emby_api.dart';
 import 'screens/library_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/player_screen.dart';
+import 'screens/settings_screen.dart';
 import 'session_store.dart';
 
 /// Startup is deliberately minimal: crash capture, then runApp.
@@ -32,7 +33,7 @@ Future<void> main() async {
   runApp(const AudiobooksApp());
 }
 
-enum _Screen { loading, login, library, player, error }
+enum _Screen { loading, login, library, player, settings, error }
 
 class AudiobooksApp extends StatefulWidget {
   const AudiobooksApp({super.key});
@@ -92,9 +93,6 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
   }
 
   Future<BookAudioHandler> _initHandler() async {
-    // Audio focus: the speech configuration uses Android's
-    // "transient may duck" gain — notification sounds duck the book
-    // instead of pausing it.
     // Audio focus: DUCK, never pause, for transient sounds. The
     // stock speech() recipe sounds right for audiobooks but actually
     // requests full "gain" focus with willPauseWhenDucked=true - so
@@ -124,7 +122,7 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     return handler;
   }
 
-  Future<void> _openBook(EmbyItem item) async {
+  Future<void> _openBook(EmbyItem item, {bool autoplay = true}) async {
     final api = _api;
     if (api == null || _openingBook) return;
     setState(() => _openingBook = true);
@@ -160,8 +158,8 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
             childDetails = child;
           }
           final info = await api.playbackInfo(child.id);
-          session =
-              await handler.loadBook(api, childDetails, info, listItem: child);
+          session = await handler.loadBook(api, childDetails, info,
+              listItem: child, autoplay: autoplay);
         } else {
           final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
           for (final child in children) {
@@ -174,12 +172,13 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
             final info = await api.playbackInfo(child.id);
             parts.add((item: childDetails, info: info));
           }
-          session =
-              await handler.loadAlbumBook(api, details, parts, listItem: item);
+          session = await handler.loadAlbumBook(api, details, parts,
+              listItem: item, autoplay: autoplay);
         }
       } else {
         final info = await api.playbackInfo(item.id);
-        session = await handler.loadBook(api, details, info, listItem: item);
+        session = await handler.loadBook(api, details, info,
+            listItem: item, autoplay: autoplay);
       }
       if (!mounted) return;
       setState(() {
@@ -273,14 +272,18 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
         );
       case _Screen.library:
         final api = _api;
-        if (api == null) {
+        final store = _store;
+        if (api == null || store == null) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
         return LibraryScreen(
           api: api,
+          store: store,
           openingBook: _openingBook,
-          onOpenBook: _openBook,
+          onOpenBook: (item, autoplay) =>
+              _openBook(item, autoplay: autoplay),
+          onOpenSettings: () => setState(() => _screen = _Screen.settings),
           onSignOut: () async {
             await _handler?.stopAndClear();
             _store?.signOut();
@@ -289,6 +292,17 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
               _screen = _Screen.login;
             });
           },
+        );
+      case _Screen.settings:
+        final store = _store;
+        if (store == null) {
+          return const Scaffold(
+              body: Center(child: CircularProgressIndicator()));
+        }
+        return SettingsScreen(
+          store: store,
+          api: _api,
+          onBack: () => setState(() => _screen = _Screen.library),
         );
       case _Screen.player:
         final api = _api;
