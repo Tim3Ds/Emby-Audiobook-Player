@@ -202,16 +202,18 @@ class EmbyApi {
 
   String get _authHeader =>
       'MediaBrowser Client="Emby Audiobook Player", Device="Android", '
-      'DeviceId="$deviceId", Version="0.2.0"';
+      'DeviceId="$deviceId", Version="0.4.9"';
 
   Map<String, String> get _headers => {
         'X-Emby-Authorization': _authHeader,
         if (token.isNotEmpty) 'X-Emby-Token': token,
       };
 
+  static final http.Client _client = http.Client();
+
   Future<String> _execute(http.Request request) async {
     final response =
-        await http.Client().send(request).timeout(const Duration(seconds: 30));
+        await _client.send(request).timeout(const Duration(seconds: 30));
     final body = await response.stream.bytesToString();
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw StateError(
@@ -321,7 +323,6 @@ class EmbyApi {
     return ids.toList();
   }
 
-  /// Books with a saved position — the "currently playing" shelf.
   /// The book libraries the app scopes its shelves to, with their
   /// display names - shown in Settings so the filtering is visible
   /// rather than magic.
@@ -362,6 +363,7 @@ class EmbyApi {
   /// library; his audiobooks library answers ~3.5k items in ~2s.
   List<EmbyItem>? _scanCache;
   DateTime? _scanCacheAt;
+  String? _scanCacheKey;
 
   Future<List<EmbyItem>> libraryAudioItems(List<String> parentIds) async {
     // The full-library scan takes ~2s; the library screen reloads
@@ -373,6 +375,7 @@ class EmbyApi {
     final at = _scanCacheAt;
     if (cached != null &&
         at != null &&
+        _scanCacheKey == parentIds.join(',') &&
         DateTime.now().difference(at) < const Duration(minutes: 5)) {
       return cached;
     }
@@ -386,9 +389,11 @@ class EmbyApi {
     );
     _scanCache = items;
     _scanCacheAt = DateTime.now();
+    _scanCacheKey = parentIds.join(',');
     return items;
   }
 
+  /// Books with a saved position — the "currently playing" shelf.
   Future<List<EmbyItem>> resumeItems({
     List<String> parentIds = const [],
   }) async {

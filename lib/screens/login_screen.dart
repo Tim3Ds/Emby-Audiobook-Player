@@ -30,21 +30,30 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _signIn() async {
-    if (_server.text.trim().isEmpty) {
+    var server = _server.text.trim();
+    if (server.isEmpty) {
       setState(() =>
           _error = 'Enter your Emby server address first, e.g. '
               'https://emby.example.com');
       return;
     }
+    if (_username.text.trim().isEmpty) {
+      setState(() => _error = 'Enter your Emby username.');
+      return;
+    }
+    // A bare host name gets https:// - without a scheme the
+    // address parses as a relative path and every request fails
+    // with a network error that never mentions why.
+    if (!server.contains('://')) server = 'https://$server';
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final api = EmbyApi(_server.text.trim(), widget.store.deviceId);
+      final api = EmbyApi(server, widget.store.deviceId);
       final result =
           await api.authenticate(_username.text.trim(), _password.text);
-      widget.store.server = _server.text.trim();
+      widget.store.server = server;
       widget.store.username = _username.text.trim();
       widget.store.userId = result.user.id;
       widget.store.token = result.accessToken;
@@ -107,8 +116,12 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
               const SizedBox(height: 20),
               FilledButton(
-                onPressed:
-                    (_busy || _username.text.trim().isEmpty) ? null : _signIn,
+                // Always enabled while idle: the button used to key
+                // off the username field's text at build time, but
+                // typing never rebuilt the screen, so it sat
+                // disabled until something else forced a rebuild.
+                // Validation lives in _signIn instead.
+                onPressed: _busy ? null : _signIn,
                 child: Text(_busy ? 'Signing in…' : 'Sign in'),
               ),
               const SizedBox(height: 12),

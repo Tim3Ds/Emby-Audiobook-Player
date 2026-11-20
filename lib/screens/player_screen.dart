@@ -37,7 +37,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool _scrubbing = false;
   double _scrubMs = 0;
 
-  BookSession get session => widget.session;
+  // The handler's live session wins: a book can be (re)loaded
+  // behind this screen - the widget/headset continue path does
+  // exactly that - and showing the snapshot this screen was
+  // opened with would mix one book's chapters and timeline with
+  // another book's playback position.
+  BookSession get session => widget.handler.session ?? widget.session;
   BookAudioHandler get handler => widget.handler;
 
   @override
@@ -72,8 +77,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _seekGlobal(int targetMs) {
     handler.seekGlobal(targetMs);
-    setState(() => _globalMs = targetMs.clamp(
-        0, session.totalMs > 0 ? session.totalMs : targetMs));
+    // The handler clamps against the real timeline; here only the
+    // floor is safe to apply (clamp() throws when the upper bound
+    // is below the lower one, which an unknown totalMs caused).
+    setState(() => _globalMs = targetMs < 0 ? 0 : targetMs);
   }
 
   String _formatTime(int ms) {

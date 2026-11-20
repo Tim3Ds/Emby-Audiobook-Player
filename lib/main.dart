@@ -64,10 +64,19 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     if (_crash == null) {
       _loadStore();
     }
-    // The widget's play button, when nothing is loaded, launches
-    // the app with a "continue" URI: pick up the most recent book.
-    HomeWidget.initiallyLaunchedFromHomeWidget().then(_onWidgetUri);
-    HomeWidget.widgetClicked.listen(_onWidgetUri);
+    // Safety net for the widget's old launch-intent path: builds
+    // up to v0.4.6 sent play as an embyplayer://continue launch,
+    // and a widget placed by one of those builds can still hold
+    // that intent until its next refresh. (Since v0.4.8 the
+    // buttons are silent media keys and the handler continues the
+    // book itself.) A plugin hiccup here must not be recorded as
+    // a crash, hence the catchError.
+    HomeWidget.initiallyLaunchedFromHomeWidget()
+        .then(_onWidgetUri)
+        .catchError((Object _) {});
+    HomeWidget.widgetClicked
+        .listen(_onWidgetUri)
+        .onError((Object _) {});
   }
 
   void _onWidgetUri(Uri? uri) {
@@ -134,9 +143,16 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     }
   }
 
-  /// The playback stack, built once, on first use.
+  /// The playback stack, built once, on first use. A failed init
+  /// is NOT cached: the next book open retries from scratch
+  /// instead of re-awaiting the same dead future until the app
+  /// is restarted.
   Future<BookAudioHandler> _ensureHandler() {
-    return _handlerFuture ??= _initHandler();
+    final f = _handlerFuture ??= _initHandler();
+    f.then((_) {}, onError: (Object _) {
+      if (identical(_handlerFuture, f)) _handlerFuture = null;
+    });
+    return f;
   }
 
   Future<BookAudioHandler> _initHandler() async {

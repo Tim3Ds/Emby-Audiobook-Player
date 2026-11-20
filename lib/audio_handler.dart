@@ -113,6 +113,9 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     // current position first, so its place is saved too.
     if (session != null) reportStoppedNow();
     _api = api;
+    if (info.mediaSources.isEmpty) {
+      throw Exception('Emby returned no playable streams for this book.');
+    }
     final s = BookSession(details, info.mediaSources, info.playSessionId);
     session = s;
 
@@ -279,6 +282,11 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       // the app's move to the player screen - for the entire book.
       // Fire it.
       unawaited(player.play().catchError((Object _) {}));
+    } else {
+      // The player keeps its playing state across setAudioSources,
+      // so a paused open while another book was playing would
+      // otherwise start playing against the setting.
+      await player.pause();
     }
     // With autoplay off (Favorites / Next Up, unless the setting
     // says otherwise) the book opens cued at its saved position,
@@ -296,6 +304,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _watchdog?.cancel();
     _lastPosMs = -1;
     _stallSince = null;
+    _nudgeCount = 0;
     _watchdog =
         Timer.periodic(const Duration(seconds: 1), (_) => _watchdogTick());
   }
@@ -348,11 +357,16 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       return;
     }
     final sc = _sleepChapter;
-    if (sc != null && sc >= 0) {
+    if (sc != null) {
       final s = session;
-      if (s != null && s.currentChapterIndex(globalPositionMs) > sc) {
-        cancelSleep();
-        unawaited(pause());
+      if (s != null) {
+        final cur = s.currentChapterIndex(globalPositionMs);
+        // sc is -1 when armed before the first chapter's start:
+        // that chapter ends when chapter 1 begins (cur >= 1).
+        if (cur > sc && cur >= 1) {
+          cancelSleep();
+          unawaited(pause());
+        }
       }
     }
   }
@@ -367,6 +381,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   int _lastPosMs = -1;
   DateTime? _stallSince;
   bool _nudging = false;
+  int _nudgeCount = 0;
   Timer? _watchdog;
 
   void _watchdogTick() {
@@ -377,10 +392,12 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     if (!wedged || pos != _lastPosMs) {
       _lastPosMs = pos;
       _stallSince = null;
+      _nudgeCount = 0;
       return;
     }
     _stallSince ??= DateTime.now();
     if (!_nudging &&
+        _nudgeCount < 5 &&
         DateTime.now().difference(_stallSince!) >=
             const Duration(seconds: 3)) {
       _stallSince = null;
@@ -390,6 +407,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   }
 
   Future<void> _recoverStall() async {
+    _nudgeCount++;
     try {
       await player.pause();
       await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -422,6 +440,17 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _watchdog?.cancel();
     _watchdog = null;
     cancelSleep();
+    // The widget otherwise keeps the last published play state
+    // forever - a finished book would sit there showing "pause".
+    final wItem = mediaItem.value;
+    if (wItem != null) {
+      unawaited(WidgetSync.publish(
+        title: wItem.title,
+        artist: wItem.artist ?? '',
+        playing: false,
+        artUri: wItem.artUri,
+      ));
+    }
     if (api == null || s == null) return;
     final (id, sess, ms) = s.reportTarget(globalPositionMs);
     api.reportStopped(id, sess, EmbyApi.msToTicks(ms));
@@ -437,20 +466,29 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   // ---- Transport -------------------------------------------------
 
+  bool _continuing = false;
+
   @override
   Future<void> play() async {
     if (session == null) {
-      // Media play with nothing loaded (widget button, headset,
-      // notification): continue the most recent book instead of
-      // doing nothing. This is also what makes the widget's play
-      // button work after the app has been swiped away - the
-      // media key restarts the service, and the handler picks
-      // the book up itself.
-      await _continueLastBook();
+      if (_continuing) return;
+      _continuing = true;
+      try {
+        await _continueLastBook();
+      } finally {
+        _continuing = false;
+      }
       return;
     }
     await player.play();
   }
+
+  // Media play with nothing loaded (widget button, headset,
+  // notification) lands in play() above: it continues the most
+  // recent book instead of doing nothing. This is also what makes
+  // the widget's play button work after the app has been swiped
+  // away - the media key restarts the service, and the handler
+  // picks the book up itself.
 
   /// Load and play the most recent book from the saved sign-in,
   /// mirroring the app's open-book logic (album-aware). Silent

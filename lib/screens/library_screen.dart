@@ -200,7 +200,8 @@ class _LibraryScreenState extends State<LibraryScreen>
 }
 
 String _timeLeft(int ticks) {
-  final mins = (ticks / 10000000 / 60).round();
+  final raw = (ticks / 10000000 / 60).round();
+  final mins = raw < 0 ? 0 : raw;
   if (mins < 60) return '$mins min left';
   final h = mins ~/ 60;
   final m = mins % 60;
