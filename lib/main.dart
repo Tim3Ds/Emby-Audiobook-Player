@@ -72,8 +72,14 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
 
   void _onWidgetUri(Uri? uri) {
     if (uri == null || uri.host != 'continue') return;
-    if (_handler?.session != null) {
-      _handler!.play();
+    final handler = _handler;
+    if (handler?.session != null) {
+      // The widget button is play/pause: toggle the loaded book.
+      if (handler!.player.playing) {
+        handler.pause();
+      } else {
+        handler.play();
+      }
       return;
     }
     _widgetContinuePending = true;

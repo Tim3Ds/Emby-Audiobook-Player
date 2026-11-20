@@ -1,6 +1,5 @@
 package net.kellydev.audiobooks
 
-import android.app.ActivityManager
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
@@ -41,15 +40,22 @@ class BookWidgetProvider : AppWidgetProvider() {
     }
 
     private fun updateWidget(context: Context, manager: AppWidgetManager, id: Int) {
+        // A widget must never crash the host app: any failure here
+        // just leaves the previous widget rendering in place.
+        try {
+            updateWidgetInner(context, manager, id)
+        } catch (e: Exception) {
+            // Swallow: playback matters, the widget is decoration.
+        }
+    }
+
+    private fun updateWidgetInner(context: Context, manager: AppWidgetManager, id: Int) {
         val prefs = context.getSharedPreferences(
             "HomeWidgetPreferences", Context.MODE_PRIVATE
         )
         val title = prefs.getString("title", null) ?: "Emby Audiobook Player"
         val artist = prefs.getString("artist", null) ?: ""
-        // Nothing can be playing while the audio service is dead,
-        // whatever the last published state says.
-        val serviceRunning = isAudioServiceRunning(context)
-        val playing = serviceRunning && prefs.getBoolean("playing", false)
+        val playing = prefs.getBoolean("playing", false)
         val coverPath = prefs.getString("coverPath", null)
 
         val views = RemoteViews(context.packageName, R.layout.book_widget)
@@ -66,21 +72,18 @@ class BookWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_cover, R.mipmap.ic_launcher)
         }
 
-        // Play: with a live service this is a plain media
-        // play/pause. With no service (app swiped away), launch
-        // the app with the continue URI instead - it reopens the
-        // most recent book at its server-saved position and plays.
+        // Play always goes through the app: it toggles when a
+        // book is loaded, and continues the most recent book when
+        // nothing is. (The previous build branched on whether the
+        // audio service was running - that detection crashed the
+        // app whenever playback updated the widget.)
         views.setOnClickPendingIntent(
             R.id.widget_play,
-            if (serviceRunning) {
-                mediaButton(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-            } else {
-                HomeWidgetLaunchIntent.getActivity(
-                    context,
-                    MainActivity::class.java,
-                    Uri.parse("embyplayer://continue")
-                )
-            }
+            HomeWidgetLaunchIntent.getActivity(
+                context,
+                MainActivity::class.java,
+                Uri.parse("embyplayer://continue")
+            )
         )
         views.setOnClickPendingIntent(
             R.id.widget_fwd,
@@ -99,15 +102,6 @@ class BookWidgetProvider : AppWidgetProvider() {
         views.setOnClickPendingIntent(R.id.widget_title, launchPi)
 
         manager.updateAppWidget(id, views)
-    }
-
-    private fun isAudioServiceRunning(context: Context): Boolean {
-        val am = context.getSystemService(Context.ACTIVITY_SERVICE)
-            as ActivityManager
-        @Suppress("DEPRECATION")
-        return am.getRunningServices(100).any {
-            it.service.className == "com.ryanheise.audioservice.AudioService"
-        }
     }
 
     private fun mediaButton(context: Context, keyCode: Int): PendingIntent {
