@@ -241,10 +241,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       child: _isPlaying
                           ? const Icon(Icons.pause, size: 36)
                           : Transform.translate(
-                              // A play triangle's visual weight sits
-                              // left of its box; nudge it so it reads
-                              // as centred in the circle.
-                              offset: const Offset(3, 0),
+                              // The play_arrow glyph's own bounding
+                              // box sits right of centre in its grid
+                              // (path spans x 8..19 of 24), so the
+                              // stock icon already renders right-
+                              // shifted in the circle; v0.3.7 nudged
+                              // it further right and it looked wrong.
+                              // Shift it back by exactly that built-in
+                              // offset (1.5/24 of 36dp = 2.25dp) so
+                              // the triangle's box is centred.
+                              offset: const Offset(-2.25, 0),
                               child: const Icon(Icons.play_arrow, size: 36),
                             ),
                     ),
