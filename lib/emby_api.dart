@@ -334,8 +334,23 @@ class EmbyApi {
   /// Every Audio item in the given libraries, with the fields the
   /// series logic needs (path, album, index). One request per
   /// library; his audiobooks library answers ~3.5k items in ~2s.
-  Future<List<EmbyItem>> libraryAudioItems(List<String> parentIds) {
-    return _scopedItems(
+  List<EmbyItem>? _scanCache;
+  DateTime? _scanCacheAt;
+
+  Future<List<EmbyItem>> libraryAudioItems(List<String> parentIds) async {
+    // The full-library scan takes ~2s; the library screen reloads
+    // on every resume (companion-app workflow), so cache briefly.
+    // Positions inside the scan only drive Next Up's started/next
+    // math - five minutes of staleness there is harmless, and the
+    // shelves that must be live (Resume, Favorites) are not cached.
+    final cached = _scanCache;
+    final at = _scanCacheAt;
+    if (cached != null &&
+        at != null &&
+        DateTime.now().difference(at) < const Duration(minutes: 5)) {
+      return cached;
+    }
+    final items = await _scopedItems(
       (pid) => '$base/Users/$userId/Items?Recursive=true'
           '&IncludeItemTypes=Audio'
           '&Fields=Path,AlbumId,IndexNumber,PrimaryImageAspectRatio'
@@ -343,6 +358,9 @@ class EmbyApi {
           '${pid == null ? '' : '&ParentId=$pid'}',
       parentIds,
     );
+    _scanCache = items;
+    _scanCacheAt = DateTime.now();
+    return items;
   }
 
   Future<List<EmbyItem>> resumeItems({

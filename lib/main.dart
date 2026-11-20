@@ -159,7 +159,10 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
           }
           final info = await api.playbackInfo(child.id);
           session = await handler.loadBook(api, childDetails, info,
-              listItem: child, autoplay: autoplay);
+              listItem: child,
+              autoplay: autoplay,
+              rewindSec: _store?.resumeRewindSec ?? 20,
+              initialSpeed: _store?.speedFor(child.id));
         } else {
           final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
           for (final child in children) {
@@ -173,12 +176,18 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
             parts.add((item: childDetails, info: info));
           }
           session = await handler.loadAlbumBook(api, details, parts,
-              listItem: item, autoplay: autoplay);
+              listItem: item,
+              autoplay: autoplay,
+              rewindSec: _store?.resumeRewindSec ?? 20,
+              initialSpeed: _store?.speedFor(item.id));
         }
       } else {
         final info = await api.playbackInfo(item.id);
         session = await handler.loadBook(api, details, info,
-            listItem: item, autoplay: autoplay);
+            listItem: item,
+            autoplay: autoplay,
+            rewindSec: _store?.resumeRewindSec ?? 20,
+            initialSpeed: _store?.speedFor(item.id));
       }
       if (!mounted) return;
       setState(() {

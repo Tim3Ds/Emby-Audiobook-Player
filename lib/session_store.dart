@@ -44,6 +44,16 @@ class SessionStore {
   int get skipBackSec => _prefs.getInt('skipBackSec') ?? 15;
   set skipBackSec(int v) => _prefs.setInt('skipBackSec', v);
 
+  /// Seconds backed up when a book resumes (fresh open from a
+  /// saved position), so the listener re-hears the thread.
+  int get resumeRewindSec => _prefs.getInt('resumeRewindSec') ?? 20;
+  set resumeRewindSec(int v) => _prefs.setInt('resumeRewindSec', v);
+
+  /// Per-book playback speed, remembered across sessions.
+  double? speedFor(String itemId) => _prefs.getDouble('speed:$itemId');
+  void setSpeedFor(String itemId, double v) =>
+      _prefs.setDouble('speed:$itemId', v);
+
   /// Whether tapping a book in Favorites / Next Up in Series starts
   /// playing it immediately. Default off (Timothy's request): those
   /// shelves are for choosing; Continue Listening always resumes.

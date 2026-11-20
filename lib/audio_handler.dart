@@ -102,6 +102,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     PlaybackInfoResponse info, {
     required EmbyItem listItem,
     bool autoplay = true,
+    int rewindSec = 0,
+    double? initialSpeed,
   }) async {
     // Switching books: close out the previous book's session at its
     // current position first, so its place is saved too.
@@ -133,7 +135,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         details.userData?.playbackPositionTicks ??
         0;
     await _playSession(api, s, items, sources, startTicks,
-        autoplay: autoplay);
+        autoplay: autoplay, rewindSec: rewindSec, initialSpeed: initialSpeed);
     return s;
   }
 
@@ -147,6 +149,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     List<({EmbyItem item, PlaybackInfoResponse info})> parts, {
     required EmbyItem listItem,
     bool autoplay = true,
+    int rewindSec = 0,
+    double? initialSpeed,
   }) async {
     if (session != null) reportStoppedNow();
     _api = api;
@@ -235,7 +239,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       }
     }
     await _playSession(api, s, items, audioSources, startTicks,
-        autoplay: autoplay);
+        autoplay: autoplay, rewindSec: rewindSec, initialSpeed: initialSpeed);
     return s;
   }
 
@@ -243,8 +247,17 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   /// start at the saved position, begin reporting.
   Future<void> _playSession(EmbyApi api, BookSession s,
       List<MediaItem> items, List<AudioSource> sources, int startTicks,
-      {bool autoplay = true}) async {
-    final (trackIndex, offsetMs) = s.locate(EmbyApi.ticksToMs(startTicks));
+      {bool autoplay = true,
+      int rewindSec = 0,
+      double? initialSpeed}) async {
+    // Resume rewind: back up a few seconds from the saved position
+    // so the listener re-hears the thread of the story.
+    var startMs = EmbyApi.ticksToMs(startTicks);
+    if (rewindSec > 0 && startMs > 0) {
+      final rewindMs = rewindSec * 1000;
+      startMs = startMs > rewindMs ? startMs - rewindMs : 0;
+    }
+    final (trackIndex, offsetMs) = s.locate(startMs);
     if (trackIndex >= 0 && trackIndex < items.length) {
       mediaItem.add(items[trackIndex]);
     }
@@ -263,8 +276,10 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     // With autoplay off (Favorites / Next Up, unless the setting
     // says otherwise) the book opens cued at its saved position,
     // paused - the user presses play when they mean it.
-    final (rItem, rSession, rMs) =
-        s.reportTarget(EmbyApi.ticksToMs(startTicks));
+    if (initialSpeed != null && initialSpeed > 0) {
+      await player.setSpeed(initialSpeed);
+    }
+    final (rItem, rSession, rMs) = s.reportTarget(startMs);
     api.reportPlaying(rItem, rSession, EmbyApi.msToTicks(rMs));
     if (!autoplay) _reportProgress(isPaused: true);
     _reportTimer?.cancel();
@@ -276,6 +291,63 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _stallSince = null;
     _watchdog =
         Timer.periodic(const Duration(seconds: 1), (_) => _watchdogTick());
+  }
+
+  // ---- Sleep timer ----------------------------------------------------
+  DateTime? _sleepDeadline;
+  int? _sleepChapter;
+  Timer? _sleepTimer;
+
+  Duration? get sleepRemaining {
+    final dl = _sleepDeadline;
+    if (dl == null) return null;
+    final r = dl.difference(DateTime.now());
+    return r.isNegative ? Duration.zero : r;
+  }
+
+  bool get sleepChapterArmed => _sleepChapter != null;
+
+  void armSleepIn(Duration d) {
+    _sleepDeadline = DateTime.now().add(d);
+    _sleepChapter = null;
+    _ensureSleepTimer();
+  }
+
+  void armSleepEndOfChapter() {
+    final s = session;
+    if (s == null) return;
+    _sleepDeadline = null;
+    _sleepChapter = s.currentChapterIndex(globalPositionMs);
+    _ensureSleepTimer();
+  }
+
+  void cancelSleep() {
+    _sleepDeadline = null;
+    _sleepChapter = null;
+    _sleepTimer?.cancel();
+    _sleepTimer = null;
+  }
+
+  void _ensureSleepTimer() {
+    _sleepTimer ??=
+        Timer.periodic(const Duration(seconds: 2), (_) => _sleepTick());
+  }
+
+  void _sleepTick() {
+    final dl = _sleepDeadline;
+    if (dl != null && !DateTime.now().isBefore(dl)) {
+      cancelSleep();
+      unawaited(pause());
+      return;
+    }
+    final sc = _sleepChapter;
+    if (sc != null && sc >= 0) {
+      final s = session;
+      if (s != null && s.currentChapterIndex(globalPositionMs) > sc) {
+        cancelSleep();
+        unawaited(pause());
+      }
+    }
   }
 
   // ---- Stall watchdog -------------------------------------------------
@@ -342,6 +414,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     _reportTimer = null;
     _watchdog?.cancel();
     _watchdog = null;
+    cancelSleep();
     if (api == null || s == null) return;
     final (id, sess, ms) = s.reportTarget(globalPositionMs);
     api.reportStopped(id, sess, EmbyApi.msToTicks(ms));

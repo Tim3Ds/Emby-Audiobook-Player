@@ -93,6 +93,83 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return options[(idx + 1) % options.length];
   }
 
+  String _sleepLabel() {
+    if (handler.sleepChapterArmed) return 'Sleep: end of chapter';
+    final r = handler.sleepRemaining;
+    if (r == null) return 'Sleep timer';
+    final m = r.inMinutes + (r.inSeconds % 60 > 0 ? 1 : 0);
+    return 'Sleep: ${m}m left';
+  }
+
+  void _showSleepOptions() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: const Text('Off'),
+              onTap: () {
+                handler.cancelSleep();
+                Navigator.pop(ctx);
+                setState(() {});
+              },
+            ),
+            for (final mins in [5, 10, 15, 30, 45, 60])
+              ListTile(
+                title: Text('$mins minutes'),
+                onTap: () {
+                  handler.armSleepIn(Duration(minutes: mins));
+                  Navigator.pop(ctx);
+                  setState(() {});
+                },
+              ),
+            if (session.chapters.length > 1)
+              ListTile(
+                title: const Text('End of chapter'),
+                onTap: () {
+                  handler.armSleepEndOfChapter();
+                  Navigator.pop(ctx);
+                  setState(() {});
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showChapterList() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView.builder(
+          itemCount: session.chapters.length,
+          itemBuilder: (ctx, i) {
+            final ch = session.chapters[i];
+            final current = i == session.currentChapterIndex(_globalMs);
+            final name =
+                ch.name.trim().isEmpty ? 'Chapter ${i + 1}' : ch.name;
+            return ListTile(
+              leading: Icon(
+                  current ? Icons.play_arrow : Icons.bookmark_border,
+                  size: 20),
+              title: Text(name,
+                  maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(_formatTime(ch.startPositionTicks ~/ 10000)),
+              selected: current,
+              onTap: () {
+                Navigator.pop(ctx);
+                _seekGlobal(ch.startPositionTicks ~/ 10000);
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final chapterIdx = session.currentChapterIndex(_globalMs);
@@ -188,7 +265,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     Text(_formatTime(shownMs.toInt()),
                         style: Theme.of(context).textTheme.bodySmall),
                     const Spacer(),
-                    Text(_formatTime(session.totalMs),
+                    Text(
+                        '-${_formatTime(session.totalMs - shownMs.toInt())}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
@@ -305,6 +383,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       onPressed: () => handler.prevChapter(),
                       child: const Text('‹  Prev chapter'),
                     ),
+                    TextButton.icon(
+                      icon: const Icon(Icons.list, size: 18),
+                      label: const Text('Chapters'),
+                      onPressed: _showChapterList,
+                    ),
                     TextButton(
                       onPressed: () => handler.nextChapter(),
                       child: const Text('Next chapter  ›'),
@@ -312,6 +395,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ],
                 ),
               ],
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton.icon(
+                  icon: const Icon(Icons.bedtime_outlined, size: 20),
+                  label: Text(_sleepLabel()),
+                  onPressed: _showSleepOptions,
+                ),
+              ),
               const SizedBox(height: 16),
               // Playback speed
               Wrap(
@@ -324,6 +415,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       selected: _speed == s,
                       onSelected: (_) {
                         handler.setSpeed(s);
+                        widget.store.setSpeedFor(session.item.id, s);
                         setState(() => _speed = s);
                       },
                     ),

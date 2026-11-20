@@ -25,7 +25,8 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   List<EmbyItem> _resume = const [];
   List<EmbyItem> _favorites = const [];
   List<NextUpEntry> _nextUp = const [];
@@ -35,7 +36,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Companion-app workflow: he may have just favorited or
+    // started a book in the Emby app. When he switches back, the
+    // shelves should simply be current - no refresh button.
+    if (state == AppLifecycleState.resumed &&
+        !_loading &&
+        !widget.openingBook) {
+      _load();
+    }
   }
 
   Future<void> _load() async {
@@ -179,6 +199,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 }
 
+String _timeLeft(int ticks) {
+  final mins = (ticks / 10000000 / 60).round();
+  if (mins < 60) return '$mins min left';
+  final h = mins ~/ 60;
+  final m = mins % 60;
+  return m == 0 ? '${h}h left' : '${h}h ${m}m left';
+}
+
 class _BookRow extends StatelessWidget {
   final EmbyApi api;
   final EmbyItem item;
@@ -218,6 +246,9 @@ class _BookRow extends StatelessWidget {
           if (progress != null) ...[
             const SizedBox(height: 6),
             LinearProgressIndicator(value: progress),
+            const SizedBox(height: 4),
+            Text(_timeLeft(totalTicks - positionTicks),
+                style: Theme.of(context).textTheme.bodySmall),
           ],
         ],
       ),

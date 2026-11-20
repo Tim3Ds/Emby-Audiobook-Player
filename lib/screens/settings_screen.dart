@@ -25,6 +25,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late int _skipBack = widget.store.skipBackSec;
   late int _skipFwd = widget.store.skipForwardSec;
   late bool _autoplay = widget.store.autoplayFromLists;
+  late int _rewind = widget.store.resumeRewindSec;
   late final Future<List<({String id, String name})>> _libraries =
       widget.api?.bookLibraries() ??
           Future.value(const <({String id, String name})>[]);
@@ -67,6 +68,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => setState(() {
               _skipFwd = _nextIn(_skipFwd, const [10, 15, 30, 45, 60]);
               widget.store.skipForwardSec = _skipFwd;
+            }),
+          ),
+          ListTile(
+            title: const Text('Resume rewind'),
+            subtitle: const Text('Seconds backed up when a book '
+                'resumes, so you re-hear the thread. Tap to change'),
+            trailing: Text('${_rewind}s',
+                style: theme.textTheme.titleMedium),
+            onTap: () => setState(() {
+              _rewind = _nextIn(_rewind, const [0, 10, 20, 30]);
+              widget.store.resumeRewindSec = _rewind;
             }),
           ),
           SwitchListTile(
