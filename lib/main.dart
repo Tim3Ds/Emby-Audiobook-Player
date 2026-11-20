@@ -20,13 +20,21 @@ import 'session_store.dart';
 /// v0.2.0 awaited the session store, the audio session and
 /// AudioService.init BEFORE runApp — and on device the app sat on a
 /// blank screen forever: no first frame, no crash, nothing to see.
-/// From v0.2.1 the first frame goes up immediately, the store loads
-/// behind a visible loading screen, and the whole playback stack
-/// (audio session + audio_service) initialises lazily at the first
-/// book open — the same rule the native build learned in v0.1.2:
-/// startup never touches playback, so the sign-in screen is always
-/// reachable and any playback-init failure surfaces as an error the
-/// user can see (and screenshot) instead of a blank screen.
+/// From v0.2.1 the first frame goes up immediately and the store
+/// loads behind a visible loading screen. The playback stack is
+/// still never AWAITED at startup — but since v0.4.13 its init is
+/// kicked off unawaited from initState, for one reason: when
+/// Android restarts the playback service after the process has
+/// been killed (a headset or widget play press after a long
+/// pause), the plugin boots this same engine headless and runs
+/// main(), and the media key that started the service is silently
+/// dropped unless a handler is registered by the time it lands.
+/// Lazy init at first book open meant that path could never work:
+/// no handler existed until the app was opened and a book tapped
+/// — which was exactly the reported workaround. Eager-but-unawaited
+/// init keeps the v0.2.1 guarantee (first frame immediately, init
+/// failures still surface at book open, never as a blank screen)
+/// while making the headless path real.
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await CrashLog.init();
@@ -77,6 +85,15 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     HomeWidget.widgetClicked
         .listen(_onWidgetUri)
         .onError((Object _) {});
+    // Register the playback handler right away (see the startup
+    // note at main()): a media key that cold-starts the service
+    // after process death is dropped by the platform side if no
+    // handler is connected, so the handler must exist even when
+    // nobody ever opens a book in this engine. Unawaited on
+    // purpose — the first frame never waits on playback init,
+    // and _ensureHandler's retry-on-error keeps a failed attempt
+    // from being cached.
+    unawaited(_ensureHandler());
   }
 
   void _onWidgetUri(Uri? uri) {
@@ -136,10 +153,12 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
     }
   }
 
-  /// The playback stack, built once, on first use. A failed init
-  /// is NOT cached: the next book open retries from scratch
-  /// instead of re-awaiting the same dead future until the app
-  /// is restarted.
+  /// The playback stack, built once. Kicked off unawaited from
+  /// initState (a headless service restart needs the handler
+  /// registered before any media key lands) and awaited by the
+  /// first book open. A failed init is NOT cached: the next book
+  /// open retries from scratch instead of re-awaiting the same
+  /// dead future until the app is restarted.
   Future<BookAudioHandler> _ensureHandler() {
     final f = _handlerFuture ??= _initHandler();
     f.then((_) {}, onError: (Object _) {

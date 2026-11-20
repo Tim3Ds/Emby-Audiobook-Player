@@ -128,6 +128,12 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Timer? _reportTimer;
   bool _wasPlaying = false;
 
+  // The last book's cue, remembered so play() can re-cue it if
+  // the player loses its sources while a session is loaded
+  // (see play()). Set by _playSession on every load.
+  List<MediaItem> _lastItems = const [];
+  List<AudioSource> _lastSources = const [];
+
   BookAudioHandler() {
     player.playbackEventStream.map(_transformEvent).pipe(playbackState);
     player.playingStream.listen((playing) {
@@ -408,6 +414,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       {bool autoplay = true,
       int rewindSec = 0,
       double? initialSpeed}) async {
+    _lastItems = items;
+    _lastSources = sources;
     // Resume rewind: back up a few seconds from the saved position
     // so the listener re-hears the thread of the story.
     var startMs = EmbyApi.ticksToMs(startTicks);
@@ -608,6 +616,8 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
     reportStoppedNow();
     session = null;
     _api = null;
+    _lastItems = const [];
+    _lastSources = const [];
     queue.add([]);
     await player.stop();
   }
@@ -627,6 +637,44 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         _continuing = false;
       }
       return;
+    }
+    // The session is loaded, but the player under it may have
+    // lost its cue while the process survived: an error during a
+    // long pause, or a stop() from the notification, leaves
+    // processingState idle with nothing loaded, and a bare
+    // player.play() then silently does nothing - a headset or
+    // widget press with no response, curable only by reopening
+    // the book. Re-cue the same sources at the current position
+    // (via _playSession, so reporting and the watchdog restart
+    // too); if even that fails, drop the session and reopen the
+    // book fresh from the server, like the nothing-loaded path.
+    final state = player.processingState;
+    if (state == ProcessingState.idle && _lastSources.isNotEmpty) {
+      final api = _api;
+      final s = session;
+      if (api != null && s != null) {
+        try {
+          await _playSession(
+              api, s, _lastItems, _lastSources,
+              EmbyApi.msToTicks(globalPositionMs),
+              autoplay: true);
+          return;
+        } catch (_) {
+          if (_continuing) return;
+          _continuing = true;
+          try {
+            session = null;
+            await _continueLastBook();
+          } finally {
+            _continuing = false;
+          }
+          return;
+        }
+      }
+    }
+    if (state == ProcessingState.completed) {
+      // Pressing play on a finished book starts it over.
+      await seekGlobal(0);
     }
     await player.play();
   }

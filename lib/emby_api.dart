@@ -202,7 +202,7 @@ class EmbyApi {
 
   String get _authHeader =>
       'MediaBrowser Client="Emby Audiobook Player", Device="Android", '
-      'DeviceId="$deviceId", Version="0.4.12"';
+      'DeviceId="$deviceId", Version="0.4.13"';
 
   Map<String, String> get _headers => {
         'X-Emby-Authorization': _authHeader,
