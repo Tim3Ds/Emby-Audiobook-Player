@@ -57,6 +57,14 @@ class SessionStore {
   /// Whether tapping a book in Favorites / Next Up in Series starts
   /// playing it immediately. Default off (Timothy's request): those
   /// shelves are for choosing; Continue Listening always resumes.
+  /// The most recently opened book, for the widget's continue
+  /// button. Refreshed from the server on use, so positions stay
+  /// server-true.
+  String? get lastBookId => _prefs.getString('lastBookId');
+  set lastBookId(String? v) => v == null
+      ? _prefs.remove('lastBookId')
+      : _prefs.setString('lastBookId', v);
+
   bool get autoplayFromLists => _prefs.getBool('autoplayFromLists') ?? false;
   set autoplayFromLists(bool v) => _prefs.setBool('autoplayFromLists', v);
 

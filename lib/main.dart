@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:audio_service/audio_service.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:flutter/material.dart';
+import 'package:home_widget/home_widget.dart';
 
 import 'audio_handler.dart';
 import 'book_session.dart';
@@ -54,12 +55,51 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
   BookAudioHandler? _handler;
   Future<BookAudioHandler>? _handlerFuture;
 
+  bool _widgetContinuePending = false;
+
   @override
   void initState() {
     super.initState();
     _crash = CrashLog.read();
     if (_crash == null) {
       _loadStore();
+    }
+    // The widget's play button, when nothing is loaded, launches
+    // the app with a "continue" URI: pick up the most recent book.
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(_onWidgetUri);
+    HomeWidget.widgetClicked.listen(_onWidgetUri);
+  }
+
+  void _onWidgetUri(Uri? uri) {
+    if (uri == null || uri.host != 'continue') return;
+    if (_handler?.session != null) {
+      _handler!.play();
+      return;
+    }
+    _widgetContinuePending = true;
+    _tryWidgetContinue();
+  }
+
+  Future<void> _tryWidgetContinue() async {
+    if (!_widgetContinuePending) return;
+    final api = _api;
+    final store = _store;
+    if (api == null || store == null) return; // retried once ready
+    _widgetContinuePending = false;
+    try {
+      EmbyItem? item;
+      final lastId = store.lastBookId;
+      if (lastId != null && lastId.isNotEmpty) {
+        item = await api.itemDetails(lastId);
+      } else {
+        final resume = await api.resumeItems();
+        if (resume.isNotEmpty) item = resume.first;
+      }
+      if (item != null && mounted) {
+        await _openBook(item, autoplay: true);
+      }
+    } catch (_) {
+      // A failed widget continue simply lands on the library.
     }
   }
 
@@ -77,6 +117,7 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
           _screen = _Screen.login;
         }
       });
+      _tryWidgetContinue();
     } catch (e, st) {
       CrashLog.record(e, st);
       if (!mounted) return;
@@ -125,6 +166,7 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
   Future<void> _openBook(EmbyItem item, {bool autoplay = true}) async {
     final api = _api;
     if (api == null || _openingBook) return;
+    _store?.lastBookId = item.id;
     setState(() => _openingBook = true);
     try {
       final handler = await _ensureHandler().timeout(
@@ -274,10 +316,13 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
         }
         return LoginScreen(
           store: store,
-          onSignedIn: (api) => setState(() {
-            _api = api;
-            _screen = _Screen.library;
-          }),
+          onSignedIn: (api) {
+            setState(() {
+              _api = api;
+              _screen = _Screen.library;
+            });
+            _tryWidgetContinue();
+          },
         );
       case _Screen.library:
         final api = _api;
