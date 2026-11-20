@@ -7,12 +7,10 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
 import android.widget.RemoteViews
 import com.ryanheise.audioservice.MediaButtonReceiver
-import es.antonborri.home_widget.HomeWidgetLaunchIntent
 
 /// Home-screen widget: current book's cover, title, and transport
 /// (rewind / play-pause / fast-forward). Data is published by the
@@ -72,18 +70,14 @@ class BookWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_cover, R.mipmap.ic_launcher)
         }
 
-        // Play always goes through the app: it toggles when a
-        // book is loaded, and continues the most recent book when
-        // nothing is. (The previous build branched on whether the
-        // audio service was running - that detection crashed the
-        // app whenever playback updated the widget.)
+        // Play/pause is a silent media key, like rewind and
+        // forward: the audio service toggles the loaded book, or
+        // - when nothing is loaded - the handler continues the
+        // most recent book itself. Only non-button areas (cover,
+        // title) open the app.
         views.setOnClickPendingIntent(
             R.id.widget_play,
-            HomeWidgetLaunchIntent.getActivity(
-                context,
-                MainActivity::class.java,
-                Uri.parse("embyplayer://continue")
-            )
+            mediaButton(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
         )
         views.setOnClickPendingIntent(
             R.id.widget_fwd,

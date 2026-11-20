@@ -438,7 +438,87 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   // ---- Transport -------------------------------------------------
 
   @override
-  Future<void> play() => player.play();
+  Future<void> play() async {
+    if (session == null) {
+      // Media play with nothing loaded (widget button, headset,
+      // notification): continue the most recent book instead of
+      // doing nothing. This is also what makes the widget's play
+      // button work after the app has been swiped away - the
+      // media key restarts the service, and the handler picks
+      // the book up itself.
+      await _continueLastBook();
+      return;
+    }
+    await player.play();
+  }
+
+  /// Load and play the most recent book from the saved sign-in,
+  /// mirroring the app's open-book logic (album-aware). Silent
+  /// and best-effort: any failure just leaves things stopped.
+  Future<void> _continueLastBook() async {
+    try {
+      final store = await SessionStore.load();
+      if (!store.isSignedIn) return;
+      final api = EmbyApi(store.server, store.deviceId,
+          token: store.token, userId: store.userId);
+      EmbyItem? target;
+      final lastId = store.lastBookId;
+      if (lastId != null && lastId.isNotEmpty) {
+        target = await api.itemDetails(lastId);
+      } else {
+        final resume = await api.resumeItems();
+        if (resume.isNotEmpty) target = resume.first;
+      }
+      if (target == null) return;
+      final item = target;
+      if (item.type == 'MusicAlbum') {
+        final children = await api.albumChildren(item.id);
+        if (children.isEmpty) return;
+        if (children.length == 1) {
+          final child = children.first;
+          EmbyItem childDetails;
+          try {
+            childDetails = await api.itemDetails(child.id);
+          } catch (_) {
+            childDetails = child;
+          }
+          final info = await api.playbackInfo(child.id);
+          await loadBook(api, childDetails, info,
+              listItem: child,
+              autoplay: true,
+              rewindSec: store.resumeRewindSec,
+              initialSpeed: store.speedFor(child.id));
+        } else {
+          final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
+          for (final child in children) {
+            EmbyItem childDetails;
+            try {
+              childDetails = await api.itemDetails(child.id);
+            } catch (_) {
+              childDetails = child;
+            }
+            final info = await api.playbackInfo(child.id);
+            parts.add((item: childDetails, info: info));
+          }
+          await loadAlbumBook(api, item, parts,
+              listItem: item,
+              autoplay: true,
+              rewindSec: store.resumeRewindSec,
+              initialSpeed: store.speedFor(item.id));
+        }
+      } else {
+        final details = await api.itemDetails(item.id);
+        final info = await api.playbackInfo(item.id);
+        await loadBook(api, details, info,
+            listItem: item,
+            autoplay: true,
+            rewindSec: store.resumeRewindSec,
+            initialSpeed: store.speedFor(item.id));
+      }
+    } catch (_) {
+      // Best effort only; opening the app still works.
+    }
+  }
 
   @override
   Future<void> pause() => player.pause();
