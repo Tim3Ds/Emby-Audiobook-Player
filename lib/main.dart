@@ -258,6 +258,12 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
         _playerSession = session;
         _screen = _Screen.player;
       });
+    } on BookLoadInterrupted {
+      // A newer load (e.g. the widget's silent continue) won the
+      // race for the player while this open was in flight. It
+      // owns playback now; just land back on the library.
+      if (!mounted) return;
+      setState(() => _screen = _Screen.library);
     } catch (e, st) {
       CrashLog.record(e, st);
       if (!mounted) return;

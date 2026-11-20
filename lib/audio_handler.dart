@@ -22,6 +22,14 @@ import 'widget_sync.dart';
 ///
 /// Emby position sync lives here too: Playing on load, Progress every
 /// ~10s and on pause, Stopped when the book is closed.
+/// A book load was superseded by a newer one while in flight
+/// (e.g. the widget's silent continue and an in-app tap racing
+/// to open the same book). The newer load owns the player; the
+/// loser should step aside quietly, not surface an error.
+class BookLoadInterrupted implements Exception {
+  const BookLoadInterrupted();
+}
+
 class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   final AudioPlayer player = AudioPlayer();
 
@@ -98,9 +106,44 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         player.currentIndex ?? 0, player.position.inMilliseconds);
   }
 
+  // All book loads serialize through one chain: just_audio
+  // aborts an in-flight load when a second one starts
+  // ("Loading interrupted"), and before this funnel the widget's
+  // silent continue and an in-app open could race exactly that
+  // way. Queued loads run in order; the last one wins.
+  Future<void> _loadLock = Future<void>.value();
+
+  Future<BookSession> _serializedLoad(
+      Future<BookSession> Function() body) async {
+    final run = _loadLock.then((_) async {
+      try {
+        return await body();
+      } on PlayerInterruptedException {
+        throw const BookLoadInterrupted();
+      }
+    });
+    _loadLock = run.then((_) {}, onError: (Object _) {});
+    return run;
+  }
+
   /// Load a book and start it at the saved position. Returns the
   /// session the UI should present.
   Future<BookSession> loadBook(
+    EmbyApi api,
+    EmbyItem details,
+    PlaybackInfoResponse info, {
+    required EmbyItem listItem,
+    bool autoplay = true,
+    int rewindSec = 0,
+    double? initialSpeed,
+  }) =>
+      _serializedLoad(() => _loadBook(api, details, info,
+          listItem: listItem,
+          autoplay: autoplay,
+          rewindSec: rewindSec,
+          initialSpeed: initialSpeed));
+
+  Future<BookSession> _loadBook(
     EmbyApi api,
     EmbyItem details,
     PlaybackInfoResponse info, {
@@ -151,6 +194,21 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   /// offsets; position reports go to the file currently playing,
   /// because Emby keeps resume points per file.
   Future<BookSession> loadAlbumBook(
+    EmbyApi api,
+    EmbyItem albumDetails,
+    List<({EmbyItem item, PlaybackInfoResponse info})> parts, {
+    required EmbyItem listItem,
+    bool autoplay = true,
+    int rewindSec = 0,
+    double? initialSpeed,
+  }) =>
+      _serializedLoad(() => _loadAlbumBook(api, albumDetails, parts,
+          listItem: listItem,
+          autoplay: autoplay,
+          rewindSec: rewindSec,
+          initialSpeed: initialSpeed));
+
+  Future<BookSession> _loadAlbumBook(
     EmbyApi api,
     EmbyItem albumDetails,
     List<({EmbyItem item, PlaybackInfoResponse info})> parts, {
