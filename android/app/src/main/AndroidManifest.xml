@@ -37,6 +37,17 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- Invisible trampoline for the widget's buttons: hands
+             media keys to the audio service from a foreground
+             context, then finishes without ever showing UI. -->
+        <activity
+            android:name=".WidgetActionActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoDisplay"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity="" />
+
         <!-- Home-screen widget (cover + transport controls) -->
         <receiver
             android:name=".BookWidgetProvider"

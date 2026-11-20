@@ -3,21 +3,19 @@ package net.kellydev.audiobooks
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
-import android.view.KeyEvent
 import android.widget.RemoteViews
-import com.ryanheise.audioservice.MediaButtonReceiver
 
 /// Home-screen widget: current book's cover, title, and transport
 /// (rewind / play-pause / fast-forward). Data is published by the
-/// Dart side through the home_widget plugin's shared preferences;
-/// the buttons send media key events to the audio service, so
-/// they work with the app in the background and use the same
-/// configured skip lengths as everything else.
+/// Dart side through the home_widget plugin's shared preferences.
+/// The buttons route through WidgetActionActivity, which hands
+/// media keys to the audio service from a foreground context -
+/// broadcasting them crashed the app on modern Android.
 class BookWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(
@@ -70,22 +68,21 @@ class BookWidgetProvider : AppWidgetProvider() {
             views.setImageViewResource(R.id.widget_cover, R.mipmap.ic_launcher)
         }
 
-        // Play/pause is a silent media key, like rewind and
-        // forward: the audio service toggles the loaded book, or
-        // - when nothing is loaded - the handler continues the
-        // most recent book itself. Only non-button areas (cover,
-        // title) open the app.
+        // Buttons act silently through the invisible trampoline
+        // activity (see WidgetActionActivity for why the old
+        // media-key broadcasts crashed the app). Only non-button
+        // areas (cover, title) open the app.
         views.setOnClickPendingIntent(
             R.id.widget_play,
-            mediaButton(context, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+            widgetAction(context, "toggle", 1)
         )
         views.setOnClickPendingIntent(
             R.id.widget_fwd,
-            mediaButton(context, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD)
+            widgetAction(context, "fwd", 2)
         )
         views.setOnClickPendingIntent(
             R.id.widget_rew,
-            mediaButton(context, KeyEvent.KEYCODE_MEDIA_REWIND)
+            widgetAction(context, "rew", 3)
         )
         val launch = Intent(context, MainActivity::class.java)
         val launchPi = PendingIntent.getActivity(
@@ -118,16 +115,16 @@ class BookWidgetProvider : AppWidgetProvider() {
         )
     }
 
-    private fun mediaButton(context: Context, keyCode: Int): PendingIntent {
-        val intent = Intent(Intent.ACTION_MEDIA_BUTTON).apply {
-            component = ComponentName(context, MediaButtonReceiver::class.java)
-            putExtra(
-                Intent.EXTRA_KEY_EVENT,
-                KeyEvent(KeyEvent.ACTION_DOWN, keyCode)
-            )
+    private fun widgetAction(
+        context: Context,
+        action: String,
+        requestCode: Int
+    ): PendingIntent {
+        val intent = Intent(context, WidgetActionActivity::class.java).apply {
+            data = Uri.parse("embyplayer://$action")
         }
-        return PendingIntent.getBroadcast(
-            context, keyCode, intent,
+        return PendingIntent.getActivity(
+            context, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
     }

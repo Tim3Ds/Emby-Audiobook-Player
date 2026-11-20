@@ -148,10 +148,20 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _showChapterList() {
+    // Open scrolled to the current chapter (kept as the second
+    // visible row, so the previous chapter peeks above it).
+    // itemExtent makes the offset math exact.
+    final currentAtOpen = session.currentChapterIndex(_globalMs);
+    final controller = ScrollController(
+      initialScrollOffset:
+          currentAtOpen > 1 ? (currentAtOpen - 1) * 72.0 : 0.0,
+    );
     showModalBottomSheet<void>(
       context: context,
       builder: (ctx) => SafeArea(
         child: ListView.builder(
+          controller: controller,
+          itemExtent: 72,
           itemCount: session.chapters.length,
           itemBuilder: (ctx, i) {
             final ch = session.chapters[i];
