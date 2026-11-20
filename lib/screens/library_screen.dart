@@ -72,15 +72,26 @@ class _LibraryScreenState extends State<LibraryScreen>
       // a wrong one. Continue Listening needs no scoping - its
       // saved-position filter is the reliable mechanism.
       final bookLibs = await widget.api.bookLibraryIds();
-      final resume = await widget.api.resumeItems();
-      final favorites = await widget.api.favoriteItems(parentIds: bookLibs);
-      // Next Up in Series needs a full scan of the book libraries.
-      // It is best-effort: if the scan fails, the shelf just stays
-      // hidden - the two shelves above are the app's core.
+      // The shelves and the series scan are independent requests:
+      // start them all, then collect. (This used to be a strict
+      // sequence, so the screen waited for the sum of every
+      // round trip - including the ~2s full-library scan.)
+      final scanFuture = bookLibs.isEmpty
+          ? null
+          : widget.api.libraryAudioItems(bookLibs);
+      final shelves = await Future.wait([
+        widget.api.resumeItems(),
+        widget.api.favoriteItems(parentIds: bookLibs),
+      ]);
+      final resume = shelves[0];
+      final favorites = shelves[1];
+      // Next Up in Series needs the full scan. It is best-effort:
+      // if the scan fails, the shelf just stays hidden - the two
+      // shelves above are the app's core.
       var nextUp = const <NextUpEntry>[];
-      if (bookLibs.isNotEmpty) {
+      if (scanFuture != null) {
         try {
-          final scan = await widget.api.libraryAudioItems(bookLibs);
+          final scan = await scanFuture;
           nextUp = computeNextUp(scan,
               inProgressIds: resume.map((e) => e.id).toSet());
         } catch (_) {
@@ -231,7 +242,8 @@ class _BookRow extends StatelessWidget {
         width: 48,
         height: 64,
         child: item.hasCover
-            ? Image.network(api.imageUrl(item.coverItemId),
+            ? Image.network(api.imageUrl(item.coverItemId, maxWidth: 96),
+                cacheWidth: 96,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const Icon(Icons.book, size: 32))
             : const Icon(Icons.book, size: 32),

@@ -202,7 +202,7 @@ class EmbyApi {
 
   String get _authHeader =>
       'MediaBrowser Client="Emby Audiobook Player", Device="Android", '
-      'DeviceId="$deviceId", Version="0.4.11"';
+      'DeviceId="$deviceId", Version="0.4.12"';
 
   Map<String, String> get _headers => {
         'X-Emby-Authorization': _authHeader,
@@ -274,7 +274,13 @@ class EmbyApi {
   /// library "audiobooks" (distinct from the "books" ebook type);
   /// both count. Scoping the book lists to these libraries keeps
   /// music out even when the server types music items unexpectedly.
+  List<String>? _bookLibIdsCache;
+
   Future<List<String>> bookLibraryIds() async {
+    // The library set does not change during a sign-in session,
+    // and the library screen asks on every load - cache it.
+    final cachedIds = _bookLibIdsCache;
+    if (cachedIds != null) return cachedIds;
     final ids = <String>{};
     bool isBookType(Object? ct) {
       final s = (ct as String?)?.toLowerCase();
@@ -320,7 +326,7 @@ class EmbyApi {
     } catch (_) {
       // Keep whatever VirtualFolders found.
     }
-    return ids.toList();
+    return _bookLibIdsCache = ids.toList();
   }
 
   /// The book libraries the app scopes its shelves to, with their
@@ -382,7 +388,7 @@ class EmbyApi {
     final items = await _scopedItems(
       (pid) => '$base/Users/$userId/Items?Recursive=true'
           '&IncludeItemTypes=Audio'
-          '&Fields=Path,AlbumId,IndexNumber,PrimaryImageAspectRatio'
+          '&Fields=Path,AlbumId,IndexNumber'
           '&EnableImages=true'
           '${pid == null ? '' : '&ParentId=$pid'}',
       parentIds,
@@ -504,7 +510,12 @@ class EmbyApi {
     return '$base/Audio/$itemId/stream.$container?Static=true&api_key=$token';
   }
 
-  String imageUrl(String itemId) => '$base/Items/$itemId/Images/Primary?api_key=$token';
+  /// Cover art URL. Ask for a sized image: the full-resolution
+  /// originals are wildly larger than any surface that shows
+  /// them (48dp rows, a 220dp player image, the widget).
+  String imageUrl(String itemId, {int? maxWidth}) =>
+      '$base/Items/$itemId/Images/Primary?api_key=$token'
+      '${maxWidth == null ? '' : '&maxWidth=$maxWidth'}';
 
   // ---- Playback session reporting: this is what keeps the position
   // ---- synced in Emby (and therefore in every other Emby client).

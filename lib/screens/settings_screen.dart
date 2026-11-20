@@ -30,11 +30,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       widget.api?.bookLibraries() ??
           Future.value(const <({String id, String name})>[]);
 
-  int _nextIn(int current, List<int> options) {
-    final idx = options.indexOf(current);
-    return options[(idx + 1) % options.length];
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -56,7 +51,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: Text('${_skipBack}s',
                 style: theme.textTheme.titleMedium),
             onTap: () => setState(() {
-              _skipBack = _nextIn(_skipBack, const [5, 10, 15, 30]);
+              _skipBack = nextInCycle(_skipBack, skipBackOptions);
               widget.store.skipBackSec = _skipBack;
             }),
           ),
@@ -66,7 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing:
                 Text('${_skipFwd}s', style: theme.textTheme.titleMedium),
             onTap: () => setState(() {
-              _skipFwd = _nextIn(_skipFwd, const [10, 15, 30, 45, 60]);
+              _skipFwd = nextInCycle(_skipFwd, skipForwardOptions);
               widget.store.skipForwardSec = _skipFwd;
             }),
           ),
@@ -77,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             trailing: Text('${_rewind}s',
                 style: theme.textTheme.titleMedium),
             onTap: () => setState(() {
-              _rewind = _nextIn(_rewind, const [0, 10, 20, 30]);
+              _rewind = nextInCycle(_rewind, const [0, 10, 20, 30]);
               widget.store.resumeRewindSec = _rewind;
             }),
           ),

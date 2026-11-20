@@ -22,6 +22,96 @@ import 'widget_sync.dart';
 ///
 /// Emby position sync lives here too: Playing on load, Progress every
 /// ~10s and on pause, Stopped when the book is closed.
+/// Resolve which item a "continue" request should open: the
+/// most recently opened book, else the top Continue Listening
+/// entry. Null when there is nothing to continue.
+Future<EmbyItem?> resolveContinueTarget(
+    EmbyApi api, SessionStore store) async {
+  final lastId = store.lastBookId;
+  if (lastId != null && lastId.isNotEmpty) {
+    return api.itemDetails(lastId);
+  }
+  final resume = await api.resumeItems();
+  return resume.isEmpty ? null : resume.first;
+}
+
+/// Open [item] (a shelf entry or a details result) as a book on
+/// [handler]: album-aware, with per-file details/playback info
+/// fetched in small parallel batches. Shared by the in-app open
+/// path and the handler's own silent continue, which used to
+/// carry two copies of this logic that could drift apart (the
+/// handler's copy had already grown a redundant double fetch).
+Future<BookSession> openBookItem(
+  BookAudioHandler handler,
+  EmbyApi api,
+  EmbyItem item, {
+  required bool autoplay,
+  required int rewindSec,
+  required double? Function(String itemId) speedFor,
+}) async {
+  EmbyItem details;
+  try {
+    details = await api.itemDetails(item.id);
+  } catch (_) {
+    details = item;
+  }
+  if (item.type == 'MusicAlbum') {
+    // A "book" on this server is an album of Audio files.
+    final children = await api.albumChildren(item.id);
+    if (children.isEmpty) {
+      throw Exception('This album has no playable audio files.');
+    }
+    if (children.length == 1) {
+      // One-file book: open the file itself, so its own resume
+      // position and chapters drive the session.
+      final child = children.first;
+      EmbyItem childDetails;
+      try {
+        childDetails = await api.itemDetails(child.id);
+      } catch (_) {
+        childDetails = child;
+      }
+      final info = await api.playbackInfo(child.id);
+      return handler.loadBook(api, childDetails, info,
+          listItem: child,
+          autoplay: autoplay,
+          rewindSec: rewindSec,
+          initialSpeed: speedFor(child.id));
+    }
+    // Multi-file book: fetch each file's details + playback info
+    // in batches of 6 - sequential fetches made chapter-split
+    // books (dozens of files) take dozens of round trips to open.
+    final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
+    for (var i = 0; i < children.length; i += 6) {
+      final batch = children.skip(i).take(6);
+      parts.addAll(await Future.wait([
+        for (final child in batch)
+          () async {
+            EmbyItem childDetails;
+            try {
+              childDetails = await api.itemDetails(child.id);
+            } catch (_) {
+              childDetails = child;
+            }
+            final info = await api.playbackInfo(child.id);
+            return (item: childDetails, info: info);
+          }(),
+      ]));
+    }
+    return handler.loadAlbumBook(api, details, parts,
+        listItem: item,
+        autoplay: autoplay,
+        rewindSec: rewindSec,
+        initialSpeed: speedFor(item.id));
+  }
+  final info = await api.playbackInfo(item.id);
+  return handler.loadBook(api, details, info,
+      listItem: item,
+      autoplay: autoplay,
+      rewindSec: rewindSec,
+      initialSpeed: speedFor(item.id));
+}
+
 /// A book load was superseded by a newer one while in flight
 /// (e.g. the widget's silent continue and an in-app tap racing
 /// to open the same book). The newer load owns the player; the
@@ -170,7 +260,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         id: source.id.isNotEmpty ? source.id : '${details.id}-$i',
         title: details.name,
         artist: details.author,
-        artUri: Uri.tryParse(api.imageUrl(details.id)),
+        artUri: Uri.tryParse(api.imageUrl(details.id, maxWidth: 512)),
         duration: source.runTimeTicks != null
             ? Duration(milliseconds: EmbyApi.ticksToMs(source.runTimeTicks!))
             : null,
@@ -279,7 +369,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         id: source.id.isNotEmpty ? source.id : '${trackItemIds[i]}-$i',
         title: albumDetails.name,
         artist: albumDetails.author,
-        artUri: Uri.tryParse(api.imageUrl(trackItemIds[i])),
+        artUri: Uri.tryParse(api.imageUrl(trackItemIds[i], maxWidth: 512)),
         duration: source.runTimeTicks != null
             ? Duration(milliseconds: EmbyApi.ticksToMs(source.runTimeTicks!))
             : null,
@@ -548,69 +638,22 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   // away - the media key restarts the service, and the handler
   // picks the book up itself.
 
-  /// Load and play the most recent book from the saved sign-in,
-  /// mirroring the app's open-book logic (album-aware). Silent
-  /// and best-effort: any failure just leaves things stopped.
+  /// Load and play the most recent book from the saved sign-in.
+  /// Silent and best-effort: any failure just leaves things
+  /// stopped. The open itself is the shared openBookItem, so this
+  /// path and the in-app path can never drift apart.
   Future<void> _continueLastBook() async {
     try {
       final store = await SessionStore.load();
       if (!store.isSignedIn) return;
       final api = EmbyApi(store.server, store.deviceId,
           token: store.token, userId: store.userId);
-      EmbyItem? target;
-      final lastId = store.lastBookId;
-      if (lastId != null && lastId.isNotEmpty) {
-        target = await api.itemDetails(lastId);
-      } else {
-        final resume = await api.resumeItems();
-        if (resume.isNotEmpty) target = resume.first;
-      }
+      final target = await resolveContinueTarget(api, store);
       if (target == null) return;
-      final item = target;
-      if (item.type == 'MusicAlbum') {
-        final children = await api.albumChildren(item.id);
-        if (children.isEmpty) return;
-        if (children.length == 1) {
-          final child = children.first;
-          EmbyItem childDetails;
-          try {
-            childDetails = await api.itemDetails(child.id);
-          } catch (_) {
-            childDetails = child;
-          }
-          final info = await api.playbackInfo(child.id);
-          await loadBook(api, childDetails, info,
-              listItem: child,
-              autoplay: true,
-              rewindSec: store.resumeRewindSec,
-              initialSpeed: store.speedFor(child.id));
-        } else {
-          final parts = <({EmbyItem item, PlaybackInfoResponse info})>[];
-          for (final child in children) {
-            EmbyItem childDetails;
-            try {
-              childDetails = await api.itemDetails(child.id);
-            } catch (_) {
-              childDetails = child;
-            }
-            final info = await api.playbackInfo(child.id);
-            parts.add((item: childDetails, info: info));
-          }
-          await loadAlbumBook(api, item, parts,
-              listItem: item,
-              autoplay: true,
-              rewindSec: store.resumeRewindSec,
-              initialSpeed: store.speedFor(item.id));
-        }
-      } else {
-        final details = await api.itemDetails(item.id);
-        final info = await api.playbackInfo(item.id);
-        await loadBook(api, details, info,
-            listItem: item,
-            autoplay: true,
-            rewindSec: store.resumeRewindSec,
-            initialSpeed: store.speedFor(item.id));
-      }
+      await openBookItem(this, api, target,
+          autoplay: true,
+          rewindSec: store.resumeRewindSec,
+          speedFor: store.speedFor);
     } catch (_) {
       // Best effort only; opening the app still works.
     }

@@ -2,6 +2,17 @@ import 'dart:math';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// Skip-length choices offered in the player and in Settings
+/// (one definition - the two screens used to carry copies).
+const skipBackOptions = [5, 10, 15, 30];
+const skipForwardOptions = [10, 15, 30, 45, 60];
+
+/// The next value in a cycle of options (wraps around).
+int nextInCycle(int current, List<int> options) {
+  final idx = options.indexOf(current);
+  return options[(idx + 1) % options.length];
+}
+
 /// Persists the sign-in session and player preferences on-device.
 /// The token stays on this device only.
 class SessionStore {

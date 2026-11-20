@@ -26,6 +26,9 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
+final _chapterPrefixPattern =
+    RegExp(r'^\s*chapter\s+\d+\s*[-:.)]?\s*', caseSensitive: false);
+
 class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _poll;
   bool _isPlaying = false;
@@ -93,11 +96,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
       return '$h:${m.toString().padLeft(2, '0')}:$ss';
     }
     return '$m:$ss';
-  }
-
-  int _nextIn(int current, List<int> options) {
-    final idx = options.indexOf(current);
-    return options[(idx + 1) % options.length];
   }
 
   String _sleepLabel() {
@@ -174,11 +172,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   size: 20),
               title: Text(name,
                   maxLines: 1, overflow: TextOverflow.ellipsis),
-              subtitle: Text(_formatTime(ch.startPositionTicks ~/ 10000)),
+              subtitle:
+                  Text(_formatTime(EmbyApi.ticksToMs(ch.startPositionTicks))),
               selected: current,
               onTap: () {
                 Navigator.pop(ctx);
-                _seekGlobal(ch.startPositionTicks ~/ 10000);
+                _seekGlobal(EmbyApi.ticksToMs(ch.startPositionTicks));
               },
             );
           },
@@ -204,9 +203,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (chapterIdx >= 0) {
       final total = session.chapters.length;
       final raw = chapterName ?? '';
-      final m = RegExp(r'^\s*chapter\s+\d+\s*[-:.)]?\s*',
-              caseSensitive: false)
-          .firstMatch(raw);
+      final m = _chapterPrefixPattern.firstMatch(raw);
       final title = m != null ? raw.substring(m.end).trim() : raw.trim();
       chapterLabel = total > 1
           ? (title.isEmpty
@@ -239,7 +236,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.network(
-                      widget.api.imageUrl(session.item.coverItemId),
+                      widget.api.imageUrl(session.item.coverItemId,
+                          maxWidth: 440),
+                      cacheWidth: 440,
                       width: 220,
                       height: 220,
                       fit: BoxFit.cover,
@@ -319,7 +318,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                         onPressed: () => setState(() {
                           _skipBack =
-                              _nextIn(_skipBack, const [5, 10, 15, 30]);
+                              nextInCycle(_skipBack, skipBackOptions);
                           widget.store.skipBackSec = _skipBack;
                         }),
                         child: Text('-${_skipBack}s'),
@@ -374,7 +373,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         ),
                         onPressed: () => setState(() {
                           _skipFwd =
-                              _nextIn(_skipFwd, const [10, 15, 30, 45, 60]);
+                              nextInCycle(_skipFwd, skipForwardOptions);
                           widget.store.skipForwardSec = _skipFwd;
                         }),
                         child: Text('+${_skipFwd}s'),
