@@ -65,7 +65,7 @@ class BookWidgetProvider : AppWidgetProvider() {
             R.id.widget_play,
             if (playing) R.drawable.ic_widget_pause else R.drawable.ic_widget_play
         )
-        val cover = coverPath?.let { BitmapFactory.decodeFile(it) }
+        val cover = coverPath?.let { decodeCover(it) }
         if (cover != null) {
             views.setImageViewBitmap(R.id.widget_cover, cover)
         } else {
@@ -102,6 +102,26 @@ class BookWidgetProvider : AppWidgetProvider() {
         views.setOnClickPendingIntent(R.id.widget_title, launchPi)
 
         manager.updateAppWidget(id, views)
+    }
+
+    /// Decode the cover scaled down: a full-size bitmap can blow
+    /// the RemoteViews transaction limit and the update silently
+    /// never lands.
+    private fun decodeCover(path: String): android.graphics.Bitmap? {
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(path, bounds)
+        var sample = 1
+        while (bounds.outWidth / sample > 256 ||
+            bounds.outHeight / sample > 256
+        ) {
+            sample *= 2
+        }
+        return BitmapFactory.decodeFile(
+            path,
+            BitmapFactory.Options().apply { inSampleSize = sample }
+        )
     }
 
     private fun mediaButton(context: Context, keyCode: Int): PendingIntent {
