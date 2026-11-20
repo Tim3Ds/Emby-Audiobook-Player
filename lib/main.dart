@@ -209,7 +209,7 @@ class _AudiobooksAppState extends State<AudiobooksApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Audiobooks for Emby',
+      title: 'Emby Audiobook Player',
       // Themed on the app icon (Timothy's artwork): layered greens on a
       // near-black backdrop. The app runs in the dark scheme to match.
       themeMode: ThemeMode.dark,

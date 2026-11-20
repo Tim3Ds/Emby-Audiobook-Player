@@ -41,7 +41,7 @@ class BookWidgetProvider : AppWidgetProvider() {
         val prefs = context.getSharedPreferences(
             "HomeWidgetPreferences", Context.MODE_PRIVATE
         )
-        val title = prefs.getString("title", null) ?: "Audiobooks for Emby"
+        val title = prefs.getString("title", null) ?: "Emby Audiobook Player"
         val artist = prefs.getString("artist", null) ?: ""
         val playing = prefs.getBoolean("playing", false)
         val coverPath = prefs.getString("coverPath", null)

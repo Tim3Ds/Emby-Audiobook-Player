@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('Audiobooks for Emby',
+              Text('Emby Audiobook Player',
                   style: Theme.of(context).textTheme.headlineMedium),
               const SizedBox(height: 8),
               Text(

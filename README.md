@@ -1,4 +1,4 @@
-# Audiobooks for Emby
+# Emby Audiobook Player
 
 A small, audiobook-only Android client for a self-hosted [Emby](https://emby.media) server.
 
