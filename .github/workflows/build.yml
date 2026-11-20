@@ -17,7 +17,30 @@ permissions:
   contents: write # needed only for the tag Release step
 
 jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.50.0"
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        # --no-fatal-infos: the codebase carries 12 known info-level
+        # lints; plain `flutter analyze` exits 1 on infos too, which
+        # would leave this gate red from day one. Errors and warnings
+        # still fail the job.
+        run: flutter analyze --no-fatal-infos
+
   build:
+    needs: [check]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -70,9 +93,12 @@ jobs:
           EOF
 
       - name: Restore signing key
+        if: github.event_name != 'pull_request'
         # The keystore and its password live in repo secrets (the repo
         # is public; the key must never be committed). Restoring the
         # same key on every run is what makes updates installable.
+        # Skipped on pull-request builds: PR builds fall back to debug
+        # signing (see build.gradle.kts) and never touch the real key.
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
