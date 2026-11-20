@@ -69,6 +69,12 @@ class EmbyItem {
   final UserDataDto? userData;
   final List<ChapterDto> chapters;
 
+  /// Where this item's cover art actually lives. MusicAlbums carry
+  /// an empty ImageTags and their own image endpoint 404s - Emby
+  /// serves the art from the album's first file instead (verified
+  /// against the server). Null means "my own id".
+  final String? imageItemId;
+
   const EmbyItem({
     this.id = '',
     this.name = '',
@@ -83,7 +89,25 @@ class EmbyItem {
     this.imageTags = const {},
     this.userData,
     this.chapters = const [],
+    this.imageItemId,
   });
+
+  EmbyItem withImageItemId(String id) => EmbyItem(
+        id: this.id,
+        name: name,
+        type: type,
+        runTimeTicks: runTimeTicks,
+        path: path,
+        album: album,
+        albumId: albumId,
+        indexNumber: indexNumber,
+        albumArtist: albumArtist,
+        artists: artists,
+        imageTags: imageTags,
+        userData: userData,
+        chapters: chapters,
+        imageItemId: id,
+      );
 
   factory EmbyItem.fromJson(Map<String, dynamic> j) => EmbyItem(
         id: j['Id'] as String? ?? '',
@@ -111,6 +135,8 @@ class EmbyItem {
   String get author =>
       albumArtist ?? (artists.isNotEmpty ? artists.first : '');
   bool get hasPrimaryImage => imageTags.containsKey('Primary');
+  String get coverItemId => imageItemId ?? id;
+  bool get hasCover => hasPrimaryImage || imageItemId != null;
 }
 
 class MediaSourceDto {
@@ -417,7 +443,21 @@ class EmbyApi {
       final rt = i.runTimeTicks;
       return rt == null || rt >= minBookTicks;
     });
-    return [...files, ...albums]..sort(
+    // Album covers live on the album's first file (see imageItemId).
+    final coveredAlbums = await Future.wait([
+      for (final album in albums)
+        () async {
+          try {
+            final children = await albumChildren(album.id);
+            return children.isEmpty
+                ? album
+                : album.withImageItemId(children.first.id);
+          } catch (_) {
+            return album;
+          }
+        }(),
+    ]);
+    return [...files, ...coveredAlbums]..sort(
         (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
   }
 

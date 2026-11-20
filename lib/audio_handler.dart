@@ -5,6 +5,8 @@ import 'package:just_audio/just_audio.dart';
 
 import 'book_session.dart';
 import 'emby_api.dart';
+import 'session_store.dart';
+import 'widget_sync.dart';
 
 /// Background playback handler (audio_service + just_audio).
 ///
@@ -35,7 +37,9 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         _reportProgress(isPaused: true);
       }
       _wasPlaying = playing;
+      _publishWidget();
     });
+    mediaItem.stream.listen((_) => _publishWidget());
     // Android draws the media notification and lock-screen controls
     // from the handler's current media item. Publishing only the queue
     // and playback state (v0.2.0-v0.2.5) left mediaItem unset, so on
@@ -193,6 +197,9 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       imageTags: albumDetails.imageTags,
       userData: albumDetails.userData,
       chapters: mergedChapters,
+      // The album's own image endpoint 404s; its cover lives on
+      // the first file.
+      imageItemId: parts.first.item.id,
     );
     final s = BookSession(
       displayItem,
@@ -211,7 +218,7 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         id: source.id.isNotEmpty ? source.id : '${trackItemIds[i]}-$i',
         title: albumDetails.name,
         artist: albumDetails.author,
-        artUri: Uri.tryParse(api.imageUrl(albumDetails.id)),
+        artUri: Uri.tryParse(api.imageUrl(trackItemIds[i])),
         duration: source.runTimeTicks != null
             ? Duration(milliseconds: EmbyApi.ticksToMs(source.runTimeTicks!))
             : null,
@@ -449,6 +456,34 @@ class BookAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
       player.seek(position, index: player.currentIndex);
 
   /// Book-global seek used by the app's own controls.
+  void _publishWidget() {
+    final item = mediaItem.value;
+    if (item == null) return;
+    unawaited(WidgetSync.publish(
+      title: item.title,
+      artist: item.artist ?? '',
+      playing: player.playing,
+      artUri: item.artUri,
+    ));
+  }
+
+  /// Media-session fast-forward / rewind (notification buttons,
+  /// headset keys, the home-screen widget): skip by the configured
+  /// seconds, not a continuous seek. Acts on press (begin) only.
+  @override
+  Future<void> seekForward(bool begin) async {
+    if (!begin || session == null) return;
+    final store = await SessionStore.load();
+    await seekGlobal(globalPositionMs + store.skipForwardSec * 1000);
+  }
+
+  @override
+  Future<void> seekBackward(bool begin) async {
+    if (!begin || session == null) return;
+    final store = await SessionStore.load();
+    await seekGlobal(globalPositionMs - store.skipBackSec * 1000);
+  }
+
   Future<void> seekGlobal(int globalMs) async {
     final s = session;
     if (s == null) return;

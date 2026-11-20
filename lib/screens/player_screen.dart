@@ -217,12 +217,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ],
               ),
               const SizedBox(height: 8),
-              if (session.item.hasPrimaryImage) ...[
+              if (session.item.hasCover) ...[
                 Center(
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(12),
                     child: Image.network(
-                      widget.api.imageUrl(session.item.id),
+                      widget.api.imageUrl(session.item.coverItemId),
                       width: 220,
                       height: 220,
                       fit: BoxFit.cover,

@@ -229,8 +229,9 @@ class _BookRow extends StatelessWidget {
       leading: SizedBox(
         width: 48,
         height: 64,
-        child: item.hasPrimaryImage
-            ? Image.network(api.imageUrl(item.id), fit: BoxFit.cover,
+        child: item.hasCover
+            ? Image.network(api.imageUrl(item.coverItemId),
+                fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) => const Icon(Icons.book, size: 32))
             : const Icon(Icons.book, size: 32),
       ),
